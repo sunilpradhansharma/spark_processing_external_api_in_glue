@@ -1,0 +1,143 @@
+{
+  "version": "34.0.0",
+  "artifacts": {
+    "SparkProcessingStack.assets": {
+      "type": "cdk:asset-manifest",
+      "properties": {
+        "file": "SparkProcessingStack.assets.json",
+        "requiresBootstrapStackVersion": 6,
+        "bootstrapStackVersionSsmParameter": "/cdk-bootstrap/hnb659fds/version"
+      }
+    },
+    "SparkProcessingStack": {
+      "type": "aws:cloudformation:stack",
+      "environment": "aws://152111776500/us-east-1",
+      "properties": {
+        "templateFile": "SparkProcessingStack.template.json",
+        "terminationProtection": false,
+        "tags": {
+          "Environment": "development",
+          "ManagedBy": "CDK",
+          "Project": "SparkProcessing"
+        },
+        "validateOnSynth": false,
+        "assumeRoleArn": "arn:${AWS::Partition}:iam::152111776500:role/cdk-hnb659fds-deploy-role-152111776500-us-east-1",
+        "cloudFormationExecutionRoleArn": "arn:${AWS::Partition}:iam::152111776500:role/cdk-hnb659fds-cfn-exec-role-152111776500-us-east-1",
+        "stackTemplateAssetObjectUrl": "s3://cdk-hnb659fds-assets-152111776500-us-east-1/16cea65a46af5ba878383f82711e26d84d890c67188c947c5837dd7c99d97014.json",
+        "requiresBootstrapStackVersion": 6,
+        "bootstrapStackVersionSsmParameter": "/cdk-bootstrap/hnb659fds/version",
+        "additionalDependencies": [
+          "SparkProcessingStack.assets"
+        ],
+        "lookupRole": {
+          "arn": "arn:${AWS::Partition}:iam::152111776500:role/cdk-hnb659fds-lookup-role-152111776500-us-east-1",
+          "requiresBootstrapStackVersion": 8,
+          "bootstrapStackVersionSsmParameter": "/cdk-bootstrap/hnb659fds/version"
+        }
+      },
+      "dependencies": [
+        "SparkProcessingStack.assets"
+      ],
+      "metadata": {
+        "/SparkProcessingStack": [
+          {
+            "type": "aws:cdk:stack-tags",
+            "data": [
+              {
+                "Key": "Environment",
+                "Value": "development"
+              },
+              {
+                "Key": "ManagedBy",
+                "Value": "CDK"
+              },
+              {
+                "Key": "Project",
+                "Value": "SparkProcessing"
+              }
+            ]
+          }
+        ],
+        "/SparkProcessingStack/EncryptionKey/Resource": [
+          {
+            "type": "aws:cdk:logicalId",
+            "data": "EncryptionKey1B843E66"
+          }
+        ],
+        "/SparkProcessingStack/SparkProcessing/ProcessingBucket/Resource": [
+          {
+            "type": "aws:cdk:logicalId",
+            "data": "SparkProcessingProcessingBucketD1A84B62"
+          }
+        ],
+        "/SparkProcessingStack/SparkProcessing/GlueJobRole/Resource": [
+          {
+            "type": "aws:cdk:logicalId",
+            "data": "SparkProcessingGlueJobRole19FC065A"
+          }
+        ],
+        "/SparkProcessingStack/SparkProcessing/GlueJobRole/DefaultPolicy/Resource": [
+          {
+            "type": "aws:cdk:logicalId",
+            "data": "SparkProcessingGlueJobRoleDefaultPolicy9671D476"
+          }
+        ],
+        "/SparkProcessingStack/SparkProcessing/SparkProcessingJob": [
+          {
+            "type": "aws:cdk:logicalId",
+            "data": "SparkProcessingSparkProcessingJobE93F9E83"
+          }
+        ],
+        "/SparkProcessingStack/SparkProcessing/SparkProcessingDashboard/Resource": [
+          {
+            "type": "aws:cdk:logicalId",
+            "data": "SparkProcessingSparkProcessingDashboardBB5ABA86"
+          }
+        ],
+        "/SparkProcessingStack/SparkProcessing/FailedTasksAlarm/Resource": [
+          {
+            "type": "aws:cdk:logicalId",
+            "data": "SparkProcessingFailedTasksAlarm22F13DE8"
+          }
+        ],
+        "/SparkProcessingStack/SparkProcessing/MemoryUtilizationAlarm/Resource": [
+          {
+            "type": "aws:cdk:logicalId",
+            "data": "SparkProcessingMemoryUtilizationAlarm0FB77364"
+          }
+        ],
+        "/SparkProcessingStack/SparkProcessing/ProcessingTimeAlarm/Resource": [
+          {
+            "type": "aws:cdk:logicalId",
+            "data": "SparkProcessingProcessingTimeAlarm45611D77"
+          }
+        ],
+        "/SparkProcessingStack/CDKMetadata/Default": [
+          {
+            "type": "aws:cdk:logicalId",
+            "data": "CDKMetadata"
+          }
+        ],
+        "/SparkProcessingStack/BootstrapVersion": [
+          {
+            "type": "aws:cdk:logicalId",
+            "data": "BootstrapVersion"
+          }
+        ],
+        "/SparkProcessingStack/CheckBootstrapVersion": [
+          {
+            "type": "aws:cdk:logicalId",
+            "data": "CheckBootstrapVersion"
+          }
+        ]
+      },
+      "displayName": "SparkProcessingStack"
+    },
+    "Tree": {
+      "type": "cdk:tree",
+      "properties": {
+        "file": "tree.json"
+      }
+    }
+  }
+}

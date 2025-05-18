@@ -1,0 +1,467 @@
+{
+ "Resources": {
+  "EncryptionKey1B843E66": {
+   "Type": "AWS::KMS::Key",
+   "Properties": {
+    "Description": "KMS key for spark-processing-job Spark processing",
+    "EnableKeyRotation": true,
+    "KeyPolicy": {
+     "Statement": [
+      {
+       "Action": "kms:*",
+       "Effect": "Allow",
+       "Principal": {
+        "AWS": "arn:aws:iam::152111776500:root"
+       },
+       "Resource": "*"
+      }
+     ],
+     "Version": "2012-10-17"
+    },
+    "Tags": [
+     {
+      "Key": "Environment",
+      "Value": "development"
+     },
+     {
+      "Key": "ManagedBy",
+      "Value": "CDK"
+     },
+     {
+      "Key": "Project",
+      "Value": "SparkProcessing"
+     }
+    ]
+   },
+   "UpdateReplacePolicy": "Retain",
+   "DeletionPolicy": "Retain",
+   "Metadata": {
+    "aws:cdk:path": "SparkProcessingStack/EncryptionKey/Resource"
+   }
+  },
+  "SparkProcessingProcessingBucketD1A84B62": {
+   "Type": "AWS::S3::Bucket",
+   "Properties": {
+    "BucketEncryption": {
+     "ServerSideEncryptionConfiguration": [
+      {
+       "ServerSideEncryptionByDefault": {
+        "KMSMasterKeyID": {
+         "Fn::GetAtt": [
+          "EncryptionKey1B843E66",
+          "Arn"
+         ]
+        },
+        "SSEAlgorithm": "aws:kms"
+       }
+      }
+     ]
+    },
+    "BucketName": "spark-processing-152111776500-us-east-1",
+    "CorsConfiguration": {
+     "CorsRules": [
+      {
+       "AllowedHeaders": [
+        "*"
+       ],
+       "AllowedMethods": [
+        "GET",
+        "PUT",
+        "POST"
+       ],
+       "AllowedOrigins": [
+        "*"
+       ],
+       "MaxAge": 3000
+      }
+     ]
+    },
+    "LifecycleConfiguration": {
+     "Rules": [
+      {
+       "AbortIncompleteMultipartUpload": {
+        "DaysAfterInitiation": 7
+       },
+       "Id": "CleanupOldVersions",
+       "NoncurrentVersionExpiration": {
+        "NoncurrentDays": 90
+       },
+       "Status": "Enabled"
+      },
+      {
+       "Id": "TransitionToIA",
+       "Status": "Enabled",
+       "Transitions": [
+        {
+         "StorageClass": "STANDARD_IA",
+         "TransitionInDays": 30
+        }
+       ]
+      }
+     ]
+    },
+    "MetricsConfigurations": [
+     {
+      "Id": "EntireBucket",
+      "Prefix": "",
+      "TagFilters": []
+     }
+    ],
+    "PublicAccessBlockConfiguration": {
+     "BlockPublicAcls": true,
+     "BlockPublicPolicy": true,
+     "IgnorePublicAcls": true,
+     "RestrictPublicBuckets": true
+    },
+    "Tags": [
+     {
+      "Key": "Environment",
+      "Value": "development"
+     },
+     {
+      "Key": "ManagedBy",
+      "Value": "CDK"
+     },
+     {
+      "Key": "Project",
+      "Value": "SparkProcessing"
+     }
+    ],
+    "VersioningConfiguration": {
+     "Status": "Enabled"
+    }
+   },
+   "UpdateReplacePolicy": "Retain",
+   "DeletionPolicy": "Retain",
+   "Metadata": {
+    "aws:cdk:path": "SparkProcessingStack/SparkProcessing/ProcessingBucket/Resource"
+   }
+  },
+  "SparkProcessingGlueJobRole19FC065A": {
+   "Type": "AWS::IAM::Role",
+   "Properties": {
+    "AssumeRolePolicyDocument": {
+     "Statement": [
+      {
+       "Action": "sts:AssumeRole",
+       "Effect": "Allow",
+       "Principal": {
+        "Service": "glue.amazonaws.com"
+       }
+      }
+     ],
+     "Version": "2012-10-17"
+    },
+    "ManagedPolicyArns": [
+     {
+      "Fn::Join": [
+       "",
+       [
+        "arn:",
+        {
+         "Ref": "AWS::Partition"
+        },
+        ":iam::aws:policy/service-role/AWSGlueServiceRole"
+       ]
+      ]
+     }
+    ],
+    "Tags": [
+     {
+      "Key": "Environment",
+      "Value": "development"
+     },
+     {
+      "Key": "ManagedBy",
+      "Value": "CDK"
+     },
+     {
+      "Key": "Project",
+      "Value": "SparkProcessing"
+     }
+    ]
+   },
+   "Metadata": {
+    "aws:cdk:path": "SparkProcessingStack/SparkProcessing/GlueJobRole/Resource"
+   }
+  },
+  "SparkProcessingGlueJobRoleDefaultPolicy9671D476": {
+   "Type": "AWS::IAM::Policy",
+   "Properties": {
+    "PolicyDocument": {
+     "Statement": [
+      {
+       "Action": [
+        "cloudwatch:GetMetricData",
+        "cloudwatch:PutMetricData",
+        "logs:CreateLogGroup",
+        "logs:CreateLogStream",
+        "logs:PutLogEvents"
+       ],
+       "Effect": "Allow",
+       "Resource": "*"
+      },
+      {
+       "Action": [
+        "s3:Abort*",
+        "s3:DeleteObject*",
+        "s3:GetBucket*",
+        "s3:GetObject*",
+        "s3:List*",
+        "s3:PutObject",
+        "s3:PutObjectLegalHold",
+        "s3:PutObjectRetention",
+        "s3:PutObjectTagging",
+        "s3:PutObjectVersionTagging"
+       ],
+       "Effect": "Allow",
+       "Resource": [
+        {
+         "Fn::GetAtt": [
+          "SparkProcessingProcessingBucketD1A84B62",
+          "Arn"
+         ]
+        },
+        {
+         "Fn::Join": [
+          "",
+          [
+           {
+            "Fn::GetAtt": [
+             "SparkProcessingProcessingBucketD1A84B62",
+             "Arn"
+            ]
+           },
+           "/*"
+          ]
+         ]
+        }
+       ]
+      },
+      {
+       "Action": [
+        "kms:Decrypt",
+        "kms:DescribeKey",
+        "kms:Encrypt",
+        "kms:GenerateDataKey*",
+        "kms:ReEncrypt*"
+       ],
+       "Effect": "Allow",
+       "Resource": {
+        "Fn::GetAtt": [
+         "EncryptionKey1B843E66",
+         "Arn"
+        ]
+       }
+      }
+     ],
+     "Version": "2012-10-17"
+    },
+    "PolicyName": "SparkProcessingGlueJobRoleDefaultPolicy9671D476",
+    "Roles": [
+     {
+      "Ref": "SparkProcessingGlueJobRole19FC065A"
+     }
+    ]
+   },
+   "Metadata": {
+    "aws:cdk:path": "SparkProcessingStack/SparkProcessing/GlueJobRole/DefaultPolicy/Resource"
+   }
+  },
+  "SparkProcessingSparkProcessingJobE93F9E83": {
+   "Type": "AWS::Glue::Job",
+   "Properties": {
+    "Command": {
+     "Name": "glueetl",
+     "PythonVersion": "3",
+     "ScriptLocation": "s3://spark-processing-${awsConfig.env.account}-${awsConfig.env.region}/scripts/processor.py"
+    },
+    "DefaultArguments": {
+     "--enable-metrics": "true",
+     "--enable-continuous-cloudwatch-log": "true",
+     "--enable-spark-ui": "true",
+     "--enable-job-insights": "true",
+     "--enable-auto-scaling": "true",
+     "--job-language": "python",
+     "--TempDir": "s3://spark-processing-152111776500-us-east-1/temp/",
+     "--extra-py-files": "s3://spark-processing-152111776500-us-east-1/dependencies/processing_modules.zip",
+     "--conf": "spark.sql.adaptive.enabled=true"
+    },
+    "ExecutionProperty": {
+     "MaxConcurrentRuns": 3
+    },
+    "GlueVersion": "4.0",
+    "MaxRetries": 2,
+    "Name": "spark-processing-job",
+    "NumberOfWorkers": 10,
+    "Role": {
+     "Fn::GetAtt": [
+      "SparkProcessingGlueJobRole19FC065A",
+      "Arn"
+     ]
+    },
+    "SecurityConfiguration": "GlueSecurityConfig",
+    "Tags": {
+     "Environment": "development",
+     "ManagedBy": "CDK",
+     "Project": "SparkProcessing"
+    },
+    "Timeout": 2880,
+    "WorkerType": "G.1X"
+   },
+   "Metadata": {
+    "aws:cdk:path": "SparkProcessingStack/SparkProcessing/SparkProcessingJob"
+   }
+  },
+  "SparkProcessingSparkProcessingDashboardBB5ABA86": {
+   "Type": "AWS::CloudWatch::Dashboard",
+   "Properties": {
+    "DashboardBody": {
+     "Fn::Join": [
+      "",
+      [
+       "{\"widgets\":[{\"type\":\"metric\",\"width\":6,\"height\":6,\"x\":0,\"y\":0,\"properties\":{\"view\":\"timeSeries\",\"title\":\"Job Execution Metrics\",\"region\":\"",
+       {
+        "Ref": "AWS::Region"
+       },
+       "\",\"metrics\":[[\"Glue\",\"glue.driver.aggregate.numCompletedTasks\",\"JobName\",\"spark-processing-job\",{\"period\":60,\"stat\":\"Sum\"}],[\"Glue\",\"glue.driver.aggregate.numFailedTasks\",\"JobName\",\"spark-processing-job\",{\"period\":60,\"stat\":\"Sum\"}]],\"yAxis\":{}}},{\"type\":\"metric\",\"width\":6,\"height\":6,\"x\":6,\"y\":0,\"properties\":{\"view\":\"timeSeries\",\"title\":\"Resource Utilization\",\"region\":\"",
+       {
+        "Ref": "AWS::Region"
+       },
+       "\",\"metrics\":[[\"Glue\",\"glue.driver.jvm.heap.usage\",\"JobName\",\"spark-processing-job\",{\"period\":60}],[\"Glue\",\"glue.driver.system.cpuSystemLoad\",\"JobName\",\"spark-processing-job\",{\"period\":60}]],\"yAxis\":{}}},{\"type\":\"metric\",\"width\":6,\"height\":6,\"x\":12,\"y\":0,\"properties\":{\"view\":\"timeSeries\",\"title\":\"Data Processing Metrics\",\"region\":\"",
+       {
+        "Ref": "AWS::Region"
+       },
+       "\",\"metrics\":[[\"Glue\",\"glue.ALL.s3.filesystem.read_bytes\",\"JobName\",\"spark-processing-job\",{\"period\":60,\"stat\":\"Sum\"}],[\"Glue\",\"glue.ALL.s3.filesystem.write_bytes\",\"JobName\",\"spark-processing-job\",{\"period\":60,\"stat\":\"Sum\"}]],\"yAxis\":{}}},{\"type\":\"metric\",\"width\":6,\"height\":6,\"x\":0,\"y\":6,\"properties\":{\"view\":\"timeSeries\",\"title\":\"Custom Metric: glue.driver.aggregate.shuffleLocalBytesRead\",\"region\":\"",
+       {
+        "Ref": "AWS::Region"
+       },
+       "\",\"metrics\":[[\"Glue\",\"glue.driver.aggregate.shuffleLocalBytesRead\",\"JobName\",\"spark-processing-job\",{\"period\":60}]],\"yAxis\":{}}},{\"type\":\"metric\",\"width\":6,\"height\":6,\"x\":6,\"y\":6,\"properties\":{\"view\":\"timeSeries\",\"title\":\"Custom Metric: glue.driver.aggregate.shuffleRemoteBytesRead\",\"region\":\"",
+       {
+        "Ref": "AWS::Region"
+       },
+       "\",\"metrics\":[[\"Glue\",\"glue.driver.aggregate.shuffleRemoteBytesRead\",\"JobName\",\"spark-processing-job\",{\"period\":60}]],\"yAxis\":{}}},{\"type\":\"metric\",\"width\":6,\"height\":6,\"x\":12,\"y\":6,\"properties\":{\"view\":\"timeSeries\",\"title\":\"Custom Metric: glue.driver.BlockManager.memory.memUsed_MB\",\"region\":\"",
+       {
+        "Ref": "AWS::Region"
+       },
+       "\",\"metrics\":[[\"Glue\",\"glue.driver.BlockManager.memory.memUsed_MB\",\"JobName\",\"spark-processing-job\",{\"period\":60}]],\"yAxis\":{}}}]}"
+      ]
+     ]
+    },
+    "DashboardName": "spark-processing-job-metrics"
+   },
+   "Metadata": {
+    "aws:cdk:path": "SparkProcessingStack/SparkProcessing/SparkProcessingDashboard/Resource"
+   }
+  },
+  "SparkProcessingFailedTasksAlarm22F13DE8": {
+   "Type": "AWS::CloudWatch::Alarm",
+   "Properties": {
+    "AlarmDescription": "Alert when Glue job has more than 5 failed tasks in 5 minutes",
+    "ComparisonOperator": "GreaterThanOrEqualToThreshold",
+    "Dimensions": [
+     {
+      "Name": "JobName",
+      "Value": "spark-processing-job"
+     }
+    ],
+    "EvaluationPeriods": 1,
+    "MetricName": "glue.driver.aggregate.numFailedTasks",
+    "Namespace": "Glue",
+    "Period": 300,
+    "Statistic": "Sum",
+    "Threshold": 5
+   },
+   "Metadata": {
+    "aws:cdk:path": "SparkProcessingStack/SparkProcessing/FailedTasksAlarm/Resource"
+   }
+  },
+  "SparkProcessingMemoryUtilizationAlarm0FB77364": {
+   "Type": "AWS::CloudWatch::Alarm",
+   "Properties": {
+    "AlarmDescription": "Alert when memory utilization exceeds 85% for 10 minutes",
+    "ComparisonOperator": "GreaterThanOrEqualToThreshold",
+    "Dimensions": [
+     {
+      "Name": "JobName",
+      "Value": "spark-processing-job"
+     }
+    ],
+    "EvaluationPeriods": 2,
+    "MetricName": "glue.driver.jvm.heap.usage",
+    "Namespace": "Glue",
+    "Period": 300,
+    "Statistic": "Average",
+    "Threshold": 85
+   },
+   "Metadata": {
+    "aws:cdk:path": "SparkProcessingStack/SparkProcessing/MemoryUtilizationAlarm/Resource"
+   }
+  },
+  "SparkProcessingProcessingTimeAlarm45611D77": {
+   "Type": "AWS::CloudWatch::Alarm",
+   "Properties": {
+    "AlarmDescription": "Alert when processing time exceeds 3600 seconds",
+    "ComparisonOperator": "GreaterThanOrEqualToThreshold",
+    "Dimensions": [
+     {
+      "Name": "JobName",
+      "Value": "spark-processing-job"
+     }
+    ],
+    "EvaluationPeriods": 1,
+    "MetricName": "glue.driver.aggregate.elapsedTime",
+    "Namespace": "Glue",
+    "Period": 300,
+    "Statistic": "Average",
+    "Threshold": 3600
+   },
+   "Metadata": {
+    "aws:cdk:path": "SparkProcessingStack/SparkProcessing/ProcessingTimeAlarm/Resource"
+   }
+  },
+  "CDKMetadata": {
+   "Type": "AWS::CDK::Metadata",
+   "Properties": {
+    "Analytics": "v2:deflate64:H4sIAAAAAAAA/0WNyw6CMBBFv4X9MAqsWPpY6cbgB5jSVim0NOlDYpr+u5SauLrnntzJ1Ni2WBVksSVlUylFj+HuCJ1gVY8wKYvhyj9wes5rRLANhqOnE3dJZYogiMLQacmT3PKmpaDbWaYIL+k5rv2ie6BSe7YQRwcMZ2KHXhPD0vhfDpIYldQGMULHrfaG5hc/jjBrxnG0u3fdYFXhvhitEKXxsxOKY5fzCxTqW27lAAAA"
+   },
+   "Metadata": {
+    "aws:cdk:path": "SparkProcessingStack/CDKMetadata/Default"
+   }
+  }
+ },
+ "Parameters": {
+  "BootstrapVersion": {
+   "Type": "AWS::SSM::Parameter::Value<String>",
+   "Default": "/cdk-bootstrap/hnb659fds/version",
+   "Description": "Version of the CDK Bootstrap resources in this environment, automatically retrieved from SSM Parameter Store. [cdk:skip]"
+  }
+ },
+ "Rules": {
+  "CheckBootstrapVersion": {
+   "Assertions": [
+    {
+     "Assert": {
+      "Fn::Not": [
+       {
+        "Fn::Contains": [
+         [
+          "1",
+          "2",
+          "3",
+          "4",
+          "5"
+         ],
+         {
+          "Ref": "BootstrapVersion"
+         }
+        ]
+       }
+      ]
+     },
+     "AssertDescription": "CDK bootstrap stack version 6 required. Please run 'cdk bootstrap' with a recent version of the CDK CLI."
+    }
+   ]
+  }
+ }
+}

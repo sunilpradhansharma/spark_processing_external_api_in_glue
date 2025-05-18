@@ -89,17 +89,22 @@ class Config:
 class MemoryEfficientQueue:
     """A memory-efficient queue with size limit"""
     def __init__(self, maxsize: int = 10000):
-        self.queue = queue.Queue(maxsize=maxsize)
+        self.queue = asyncio.Queue(maxsize=maxsize)
         self.processed_count = 0
+        self._lock = threading.Lock()
         
-    def put(self, item: Any) -> None:
-        self.queue.put(item)
+    async def put(self, item: Any) -> None:
+        """Put an item into the queue."""
+        await self.queue.put(item)
         
-    def get(self) -> Any:
-        return self.queue.get()
-        
+    async def get(self) -> Any:
+        """Get an item from the queue."""
+        return await self.queue.get()
+            
     def increment_processed(self) -> None:
-        self.processed_count += 1
+        """Increment the processed count in a thread-safe way."""
+        with self._lock:
+            self.processed_count += 1
 
 class S3StreamReader:
     """Memory efficient S3 reader"""
@@ -229,7 +234,7 @@ class Telemetry:
                 }
             }
 
-class PredictiveRateLimiter:
+class PerformancePredictor:
     """Predictive rate limiting using time series analysis"""
     def __init__(self, initial_rate: int = 100, history_size: int = 1000):
         self.current_rate = initial_rate
@@ -239,6 +244,7 @@ class PredictiveRateLimiter:
         self.last_adjustment = time.time()
         
     def predict_optimal_rate(self) -> int:
+        """Predict optimal rate based on historical data."""
         if len(self.success_history) < 10:
             return self.current_rate
             
@@ -257,6 +263,7 @@ class PredictiveRateLimiter:
         return int(max(10, min(predicted_rate, 1000)))
         
     def update_metrics(self, success: bool, latency: float):
+        """Update metrics with new data point."""
         self.success_history.append(1 if success else 0)
         self.latency_history.append(latency)
         self.rate_history.append(self.current_rate)
@@ -264,6 +271,328 @@ class PredictiveRateLimiter:
         if time.time() - self.last_adjustment > 5:  # Adjust every 5 seconds
             self.current_rate = self.predict_optimal_rate()
             self.last_adjustment = time.time()
+            
+    def get_current_rate(self) -> int:
+        """Get the current rate limit."""
+        return self.current_rate
+
+class PerformanceProfiler:
+    """Profiles code performance using cProfile"""
+    def __init__(self):
+        self.profiler = cProfile.Profile()
+        self.stats = {}
+        self._lock = threading.Lock()
+        
+    @contextlib.contextmanager
+    def profile(self, name: str):
+        """Context manager for profiling a code block."""
+        try:
+            self.profiler.enable()
+            yield
+        finally:
+            self.profiler.disable()
+            s = io.StringIO()
+            ps = pstats.Stats(self.profiler, stream=s).sort_stats('cumulative')
+            ps.print_stats()
+            
+            with self._lock:
+                self.stats[name] = s.getvalue()
+                
+    def get_stats(self, name: str = None) -> Union[Dict[str, str], str]:
+        """Get profiling statistics."""
+        with self._lock:
+            if name:
+                return self.stats.get(name, "No profile data available")
+            return self.stats.copy()
+            
+    def clear(self):
+        """Clear profiling data."""
+        with self._lock:
+            self.stats.clear()
+            self.profiler = cProfile.Profile()
+
+class RetryStrategy:
+    """Implements exponential backoff retry strategy for API calls"""
+    def __init__(self, max_retries: int = 3, base_delay: float = 1.0, max_delay: float = 60.0):
+        self.max_retries = max_retries
+        self.base_delay = base_delay
+        self.max_delay = max_delay
+        
+    def get_next_retry_delay(self, attempt: int) -> float:
+        """Calculate delay for next retry using exponential backoff."""
+        if attempt >= self.max_retries:
+            return -1  # Signal that we should not retry
+            
+        delay = min(self.max_delay, self.base_delay * (2 ** attempt))
+        jitter = random.uniform(0, 0.1 * delay)  # Add 0-10% jitter
+        return delay + jitter
+        
+    async def execute_with_retry(self, func: Callable, *args, **kwargs) -> Any:
+        """Execute a function with retry logic."""
+        last_exception = None
+        
+        for attempt in range(self.max_retries + 1):
+            try:
+                return await func(*args, **kwargs)
+            except Exception as e:
+                last_exception = e
+                delay = self.get_next_retry_delay(attempt)
+                
+                if delay < 0:  # Max retries exceeded
+                    break
+                    
+                await asyncio.sleep(delay)
+                
+        raise last_exception
+
+class AdaptiveConnectionPool:
+    """Manages a pool of connections with adaptive sizing"""
+    def __init__(self, initial_size: int = 10, min_size: int = 5, max_size: int = 50):
+        self.min_size = min_size
+        self.max_size = max_size
+        self.current_size = initial_size
+        self.active_connections = 0
+        self.response_times = deque(maxlen=1000)
+        self._lock = threading.Lock()
+        
+    def acquire(self) -> bool:
+        """Attempt to acquire a connection from the pool."""
+        with self._lock:
+            if self.active_connections < self.current_size:
+                self.active_connections += 1
+                return True
+            return False
+            
+    def release(self, response_time: float = None):
+        """Release a connection back to the pool."""
+        with self._lock:
+            self.active_connections -= 1
+            if response_time is not None:
+                self.response_times.append(response_time)
+                self._adjust_pool_size()
+                
+    def _adjust_pool_size(self):
+        """Adjust pool size based on response times."""
+        if len(self.response_times) < 10:
+            return
+            
+        avg_response_time = statistics.mean(self.response_times)
+        utilization = self.active_connections / self.current_size
+        
+        if avg_response_time > 1.0 and utilization > 0.8:
+            # High latency and high utilization - grow pool
+            self.current_size = min(self.max_size, int(self.current_size * 1.2))
+        elif avg_response_time < 0.5 and utilization < 0.5:
+            # Low latency and low utilization - shrink pool
+            self.current_size = max(self.min_size, int(self.current_size * 0.8))
+
+class FaultIsolation:
+    """Implements fault isolation patterns for API calls"""
+    def __init__(self, error_threshold: int = 5, isolation_period: int = 300):
+        self.error_threshold = error_threshold
+        self.isolation_period = isolation_period
+        self.error_counts = {}  # endpoint -> error count
+        self.isolation_times = {}  # endpoint -> isolation start time
+        self._lock = threading.Lock()
+        
+    def record_error(self, endpoint: str):
+        """Record an error for an endpoint."""
+        with self._lock:
+            if endpoint not in self.error_counts:
+                self.error_counts[endpoint] = 0
+            self.error_counts[endpoint] += 1
+            
+            if self.error_counts[endpoint] >= self.error_threshold:
+                self.isolation_times[endpoint] = time.time()
+                
+    def record_success(self, endpoint: str):
+        """Record a successful call for an endpoint."""
+        with self._lock:
+            self.error_counts[endpoint] = 0
+            
+    def is_isolated(self, endpoint: str) -> bool:
+        """Check if an endpoint is currently isolated."""
+        with self._lock:
+            if endpoint not in self.isolation_times:
+                return False
+                
+            isolation_time = self.isolation_times[endpoint]
+            if time.time() - isolation_time > self.isolation_period:
+                # Isolation period has expired
+                del self.isolation_times[endpoint]
+                self.error_counts[endpoint] = 0
+                return False
+                
+            return True
+
+class HealthCheck:
+    """Manages health checks for API endpoints"""
+    def __init__(self, check_interval: int = 60):
+        self.check_interval = check_interval
+        self.checks = {}  # name -> check function
+        self.results = {}  # name -> (timestamp, result)
+        self._lock = threading.Lock()
+        
+    def add_check(self, name: str, check_func: Callable[[], Dict]):
+        """Add a health check function."""
+        with self._lock:
+            self.checks[name] = check_func
+            
+    async def run_checks(self) -> Dict[str, Any]:
+        """Run all registered health checks."""
+        results = {}
+        current_time = time.time()
+        
+        for name, check_func in self.checks.items():
+            # Skip if check was run recently
+            if name in self.results:
+                last_time, last_result = self.results[name]
+                if current_time - last_time < self.check_interval:
+                    results[name] = last_result
+                    continue
+            
+            try:
+                result = await check_func()
+                self.results[name] = (current_time, result)
+                results[name] = result
+            except Exception as e:
+                results[name] = {
+                    "status": "error",
+                    "error": str(e)
+                }
+                
+        return results
+        
+    def is_healthy(self) -> bool:
+        """Check if all health checks are passing."""
+        current_time = time.time()
+        with self._lock:
+            for name, (timestamp, result) in self.results.items():
+                # Check is stale
+                if current_time - timestamp > self.check_interval:
+                    return False
+                # Check failed
+                if result.get("status") != "healthy":
+                    return False
+        return True
+
+class PredictiveRateLimiter:
+    """Predictive rate limiting using time series analysis"""
+    def __init__(self, initial_rate: int = 100, history_size: int = 1000):
+        self.current_rate = initial_rate
+        self.success_history = deque(maxlen=history_size)
+        self.latency_history = deque(maxlen=history_size)
+        self.rate_history = deque(maxlen=history_size)
+        self.last_adjustment = time.time()
+        
+    def predict_optimal_rate(self) -> int:
+        """Predict optimal rate based on historical data."""
+        if len(self.success_history) < 10:
+            return self.current_rate
+            
+        recent_success_rate = sum(self.success_history[-10:]) / 10
+        recent_latency = statistics.mean(list(self.latency_history)[-10:])
+        
+        # Use exponential moving average for prediction
+        alpha = 0.3
+        predicted_rate = self.current_rate
+        
+        if recent_success_rate > 0.95 and recent_latency < 0.5:
+            predicted_rate = self.current_rate * (1 + alpha)
+        elif recent_success_rate < 0.8 or recent_latency > 1.0:
+            predicted_rate = self.current_rate * (1 - alpha)
+            
+        return int(max(10, min(predicted_rate, 1000)))
+        
+    def update_metrics(self, success: bool, latency: float):
+        """Update metrics with new data point."""
+        self.success_history.append(1 if success else 0)
+        self.latency_history.append(latency)
+        self.rate_history.append(self.current_rate)
+        
+        if time.time() - self.last_adjustment > 5:  # Adjust every 5 seconds
+            self.current_rate = self.predict_optimal_rate()
+            self.last_adjustment = time.time()
+            
+    def get_current_rate(self) -> int:
+        """Get the current rate limit."""
+        return self.current_rate
+
+class AnalyticsEngine:
+    """Analytics engine for processing metrics and generating insights"""
+    def __init__(self, window_size: int = 1000):
+        self.window_size = window_size
+        self.metrics = deque(maxlen=window_size)
+        self._lock = threading.Lock()
+        
+    def add_metric(self, timestamp: datetime, metric: Dict[str, Any]):
+        """Add a new metric data point."""
+        with self._lock:
+            self.metrics.append({
+                'timestamp': timestamp,
+                **metric
+            })
+            
+    def get_insights(self) -> Dict[str, Any]:
+        """Generate insights from collected metrics."""
+        with self._lock:
+            if not self.metrics:
+                return {
+                    'latency_stats': {},
+                    'error_rate': 0,
+                    'throughput': 0,
+                    'anomalies': []
+                }
+                
+            # Calculate basic statistics
+            latencies = [m['latency'] for m in self.metrics]
+            successes = sum(1 for m in self.metrics if m.get('success', False))
+            
+            # Detect anomalies (points > 2 std dev from mean)
+            mean_latency = statistics.mean(latencies)
+            std_latency = statistics.stdev(latencies) if len(latencies) > 1 else 0
+            anomalies = [
+                {
+                    'timestamp': m['timestamp'],
+                    'latency': m['latency'],
+                    'z_score': (m['latency'] - mean_latency) / std_latency if std_latency > 0 else 0
+                }
+                for m in self.metrics
+                if abs(m['latency'] - mean_latency) > 2 * std_latency
+            ]
+            
+            # Group by priority if available
+            priority_stats = {}
+            for m in self.metrics:
+                if 'priority' in m:
+                    if m['priority'] not in priority_stats:
+                        priority_stats[m['priority']] = {'count': 0, 'latencies': []}
+                    priority_stats[m['priority']]['count'] += 1
+                    priority_stats[m['priority']]['latencies'].append(m['latency'])
+            
+            for stats in priority_stats.values():
+                stats['avg_latency'] = statistics.mean(stats['latencies'])
+            
+            return {
+                'latency_stats': {
+                    'mean': mean_latency,
+                    'p50': np.percentile(latencies, 50),
+                    'p90': np.percentile(latencies, 90),
+                    'p99': np.percentile(latencies, 99)
+                },
+                'error_rate': 1 - (successes / len(self.metrics)),
+                'throughput': len(self.metrics) / (
+                    (self.metrics[-1]['timestamp'] - self.metrics[0]['timestamp']).total_seconds()
+                    if len(self.metrics) > 1 else 1
+                ),
+                'anomalies': anomalies,
+                'priority_stats': priority_stats
+            }
+            
+    def clear(self):
+        """Clear all collected metrics."""
+        with self._lock:
+            self.metrics.clear()
 
 class APIClient:
     def __init__(self, endpoint: str, rate_limit: int, max_retries: int):
@@ -317,7 +646,6 @@ class AsyncAPIClient:
         self.performance_predictor = PerformancePredictor()
         self.performance_profiler = PerformanceProfiler()
         self.analytics_engine = AnalyticsEngine()
-        self.api_client = APIClient(endpoint, rate_limit_calls, max_retries)
         
         # Initialize health checks
         self.health_check.add_check("api", self._check_api_health)
@@ -334,13 +662,15 @@ class AsyncAPIClient:
 
     async def __aenter__(self):
         """Async context manager entry"""
-        self._session = aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=self.timeout))
+        if not self._session:
+            self._session = aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=self.timeout))
         return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         """Async context manager exit"""
         if self._session:
             await self._session.close()
+            self._session = None
 
     def _setup_signal_handlers(self):
         """Setup graceful shutdown handlers"""
@@ -350,66 +680,108 @@ class AsyncAPIClient:
     def _handle_shutdown(self, signum, frame):
         """Handle shutdown signals"""
         logger.info("Received shutdown signal, cleaning up...")
-        asyncio.create_task(self._cleanup())
-        
-    async def _cleanup(self):
-        """Cleanup resources"""
         if self._session:
-            await self._session.close()
+            asyncio.create_task(self._session.close())
 
     async def _check_api_health(self) -> Dict:
         """Check API endpoint health"""
         try:
             async with self._session.get(f"{self.endpoint}/health") as response:
-                return {"status": response.status, "response_time": response.elapsed.total_seconds()}
+                return {
+                    "status": "healthy" if response.status == 200 else "unhealthy",
+                    "response_time": response.elapsed.total_seconds() if hasattr(response, 'elapsed') else 0
+                }
         except Exception as e:
-            raise RuntimeError(f"API health check failed: {str(e)}")
+            return {
+                "status": "error",
+                "error": str(e)
+            }
 
     async def process_record(self, record: Dict, priority: Priority = Priority.MEDIUM) -> Dict:
         """Process a single record with ML-based optimization"""
-        with self.performance_profiler.profile("process_record"):
-            with tracer.start_as_current_span("process_record") as span:
-                span.set_attribute("record_size", len(str(record)))
-                span.set_attribute("priority", priority.name)
+        start_time = time.time()
+        
+        try:
+            # Check circuit breaker
+            if not self.circuit_breaker.can_execute():
+                raise Exception("Circuit breaker is open")
                 
-                start_time = time.time()
-                try:
-                    # Process with enhanced monitoring
-                    result = await self.api_client.process_record(record)
+            # Check fault isolation
+            if self.fault_isolation.is_isolated(self.endpoint):
+                raise Exception("Endpoint is isolated due to errors")
+                
+            # Get connection from pool
+            if not self.connection_pool.acquire():
+                raise Exception("No available connections")
+                
+            try:
+                # Make API call with retry strategy
+                async with self._semaphore:
+                    response = await self.retry_strategy.execute_with_retry(
+                        self._make_api_call,
+                        record
+                    )
                     
-                    # Update analytics
-                    duration = time.time() - start_time
-                    self.analytics_engine.add_metric(datetime.now(), {
-                        'latency': duration,
-                        'success': True,
-                        'record_size': len(str(record)),
-                        'priority': priority.value
-                    })
-                    
-                    return result
-                    
-                except Exception as e:
-                    duration = time.time() - start_time
-                    self.analytics_engine.add_metric(datetime.now(), {
-                        'latency': duration,
-                        'success': False,
-                        'error_type': type(e).__name__,
-                        'record_size': len(str(record)),
-                        'priority': priority.value
-                    })
-                    raise
-                    
+                # Update metrics and return result
+                duration = time.time() - start_time
+                self.telemetry.record_request(duration, True, len(str(record)))
+                self.analytics_engine.add_metric(datetime.now(), {
+                    'latency': duration,
+                    'success': True,
+                    'record_size': len(str(record)),
+                    'priority': priority.value
+                })
+                
+                return response
+                
+            finally:
+                self.connection_pool.release(time.time() - start_time)
+                
+        except Exception as e:
+            duration = time.time() - start_time
+            self.telemetry.record_request(duration, False, len(str(record)))
+            self.analytics_engine.add_metric(datetime.now(), {
+                'latency': duration,
+                'success': False,
+                'error_type': type(e).__name__,
+                'record_size': len(str(record)),
+                'priority': priority.value
+            })
+            
+            # Update error tracking
+            self.circuit_breaker.record_failure()
+            self.fault_isolation.record_error(self.endpoint)
+            
+            raise
+
+    async def _make_api_call(self, record: Dict) -> Dict:
+        """Make the actual API call with the current session."""
+        if not self._session:
+            raise RuntimeError("Session not initialized")
+            
+        # Compress if needed
+        data = record
+        headers = {}
+        if len(str(record)) > self.compress_threshold:
+            data = gzip.compress(json.dumps(record).encode())
+            headers['Content-Encoding'] = 'gzip'
+            
+        async with self._session.post(
+            self.endpoint,
+            json=data if 'Content-Encoding' not in headers else None,
+            data=data if 'Content-Encoding' in headers else None,
+            headers=headers
+        ) as response:
+            response.raise_for_status()
+            return await response.json()
+
     async def get_analytics(self) -> Dict:
         """Get comprehensive analytics and insights"""
         return {
             'insights': self.analytics_engine.get_insights(),
-            'performance_profile': self.performance_profiler.stats,
+            'performance_profile': self.performance_profiler.get_stats(),
             'ml_metrics': {
-                'anomaly_score': self.performance_predictor.model.score_samples(
-                    self.performance_predictor.scaler.transform(
-                        [[m['value'] for m in self.telemetry.get_metrics().values()]]
-                    )
-                )[0] if self.performance_predictor.is_trained else None
+                'anomaly_score': self.performance_predictor.predict_optimal_rate()
             }
         }
 
@@ -481,25 +853,31 @@ class Processor:
         self.telemetry = TelemetryManager()
         self.error_count = 0
         self.lock = threading.Lock()
-
+        
     async def process_batch(self, batch: list[str]) -> None:
         """Process a batch of records"""
         async with self.api_client as client:
-            for record in batch:
-                try:
-                    await client.process_record(record)
-                    self.queue.increment_processed()
-                except Exception as e:
+        for record in batch:
+            try:
+                    # Parse the JSON string into a dictionary
+                    record_dict = json.loads(record)
+                    await client.process_record(record_dict)
+                self.queue.increment_processed()
+                except json.JSONDecodeError as e:
                     with self.lock:
                         self.error_count += 1
-                    logger.error(f"Error processing record: {str(e)}")
+                    logger.error(f"Error parsing record JSON: {str(e)}")
+            except Exception as e:
+                with self.lock:
+                    self.error_count += 1
+                logger.error(f"Error processing record: {str(e)}")
 
     async def consumer(self) -> None:
         """Consumer coroutine function"""
         batch = []
         while True:
             try:
-                record = self.queue.get()
+                record = await self.queue.get()  # Use await here
                 if record is None:
                     if batch:
                         await self.process_batch(batch)
@@ -509,7 +887,10 @@ class Processor:
                 if len(batch) >= self.config.batch_size:
                     await self.process_batch(batch)
                     batch = []
-            except queue.Empty:
+            except Exception as e:  # Handle any queue errors
+                logger.error(f"Error in consumer: {str(e)}")
+                if batch:  # Process any remaining records
+                    await self.process_batch(batch)
                 break
 
     async def run(self) -> None:
@@ -530,7 +911,7 @@ class Processor:
                 with tqdm(total=self.reader.total_records, desc="Processing records") as pbar:
                     last_count = 0
                     for record in self.reader.read_records():
-                        self.queue.put(record)
+                        await self.queue.put(record)  # Use await here
                         current_count = self.queue.processed_count
                         pbar.update(current_count - last_count)
                         last_count = current_count
@@ -539,16 +920,16 @@ class Processor:
             finally:
                 # Signal consumers to stop
                 for _ in range(self.config.max_workers):
-                    self.queue.put(None)
+                    await self.queue.put(None)  # Use await here
 
             # Wait for all consumers to finish
             await asyncio.gather(*consumers)
 
         finally:
-            end_time = datetime.now()
-            duration = end_time - start_time
-            
-            logger.info(f"""
+        end_time = datetime.now()
+        duration = end_time - start_time
+        
+        logger.info(f"""
 Processing completed:
 - Total processed: {self.queue.processed_count:,} records
 - Error count: {self.error_count:,} records

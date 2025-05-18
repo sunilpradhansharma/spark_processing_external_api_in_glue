@@ -1,0 +1,20 @@
+{
+  "version": "34.0.0",
+  "files": {
+    "16cea65a46af5ba878383f82711e26d84d890c67188c947c5837dd7c99d97014": {
+      "source": {
+        "path": "SparkProcessingStack.template.json",
+        "packaging": "file"
+      },
+      "destinations": {
+        "152111776500-us-east-1": {
+          "bucketName": "cdk-hnb659fds-assets-152111776500-us-east-1",
+          "objectKey": "16cea65a46af5ba878383f82711e26d84d890c67188c947c5837dd7c99d97014.json",
+          "region": "us-east-1",
+          "assumeRoleArn": "arn:${AWS::Partition}:iam::152111776500:role/cdk-hnb659fds-file-publishing-role-152111776500-us-east-1"
+        }
+      }
+    }
+  },
+  "dockerImages": {}
+}

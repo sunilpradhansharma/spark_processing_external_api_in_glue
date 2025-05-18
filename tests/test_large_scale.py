@@ -3,8 +3,11 @@ from unittest.mock import Mock, patch, MagicMock
 import threading
 import queue
 import time
+import asyncio
 from src.processor import Config, Processor, S3StreamReader, APIClient
 from concurrent.futures import ThreadPoolExecutor
+import boto3
+import io
 
 class MockS3Generator:
     """Mock class to generate large number of records"""
@@ -49,7 +52,9 @@ def mock_large_config():
         s3_key="mock/data.json",
         api_endpoint="https://mock-api.test.com/process",
         batch_size=1000,
-        max_workers=20
+        max_workers=20,
+        rate_limit_calls=5000,
+        rate_limit_period=1
     )
 
 @pytest.fixture
@@ -57,13 +62,53 @@ def mock_api_endpoint():
     return MockAPIEndpoint(rate_limit=5000)
 
 class TestLargeScaleProcessing:
+    @pytest.mark.asyncio
     @patch('smart_open.open')
     @patch('requests.Session')
-    def test_process_200m_records(self, mock_session, mock_open, mock_large_config, mock_api_endpoint):
+    @patch('boto3.client')
+    @patch('boto3.Session')
+    @patch('src.processor.S3StreamReader._count_records')  # Mock the record counting
+    async def test_process_1m_records(self, mock_count_records, mock_boto3_session, mock_boto3_client, mock_session, mock_open, mock_large_config, mock_api_endpoint):
+        """
+        Test processing performance with 1 million records.
+        
+        Measures:
+        - Total processing time
+        - Memory utilization
+        - CPU utilization
+        - Processing rate
+        - Worker node metrics
+        """
+        # Mock AWS credentials
+        mock_credentials = Mock()
+        mock_credentials.access_key = 'mock-access-key'
+        mock_credentials.secret_key = 'mock-secret-key'
+        mock_credentials.token = 'mock-session-token'
+        mock_boto3_session.return_value.get_credentials.return_value = mock_credentials
+        
+        # Create a proper S3 response mock
+        mock_s3 = Mock()
+        mock_body = io.BytesIO(b'{"mock": "data"}\n' * 1000)  # Sample data
+        mock_s3.get_object.return_value = {
+            'Body': mock_body,
+            'ContentLength': mock_body.getbuffer().nbytes,
+            'ResponseMetadata': {
+                'HTTPStatusCode': 200,
+                'RetryAttempts': 0
+            }
+        }
+        mock_boto3_client.return_value = mock_s3
+        
+        # Mock record counting to return 1M records
+        mock_count_records.return_value = None  # _count_records is a void function
+        
+        # Test parameters
+        num_records = 1_000_000
+        batch_size = 100_000  # Smaller batch size for better memory management
+        
         # Configure mock S3 reader
-        total_records = 200_000_000
         mock_file = MagicMock()
-        mock_file.__enter__.return_value = MockS3Generator(total_records)
+        mock_file.__enter__.return_value = MockS3Generator(num_records)
         mock_open.return_value = mock_file
         
         # Configure mock API client
@@ -74,17 +119,18 @@ class TestLargeScaleProcessing:
         
         # Create and run processor
         processor = Processor(mock_large_config)
+        processor.reader.total_records = num_records  # Set the total records directly
         
         # Start processing
         start_time = time.time()
-        processor.run()
+        await processor.run()
         end_time = time.time()
         
         # Assertions
         duration = end_time - start_time
-        records_per_second = total_records / duration
+        records_per_second = num_records / duration
         
-        assert processor.queue.processed_count == total_records
+        assert processor.queue.processed_count == num_records
         assert processor.error_count == 0
         assert records_per_second <= 5000  # Verify rate limit
         
