@@ -38,7 +38,7 @@ from prometheus_client import Counter, Histogram, Gauge
 from sklearn.ensemble import IsolationForest
 from sklearn.preprocessing import StandardScaler
 from pyspark.sql import SparkSession
-from pyspark.sql.functions import col, udf
+from pyspark.sql.functions import col, udf, to_json, struct
 from pyspark.sql.types import StringType
 import requests
 
@@ -656,66 +656,71 @@ class APIClient:
 class BatchProcessor:
     def __init__(self, config: Config):
         self.config = config
-        self.metrics = ProcessingMetrics()
-        self.logger = logging.getLogger(__name__)
         
-    async def process_partition(self, records: List[Dict[str, Any]]) -> Dict[str, Any]:
-        start_time = datetime.now()
-        success_count = 0
-        error_count = 0
+    def process_batch(self, df, metrics: ProcessingMetrics) -> "pyspark.sql.DataFrame":
+        """Process a batch of records using Spark DataFrame.
         
-        # Process records in batches
-        async with APIClient(self.config.api_endpoint, 
-                           self.config.rate_limit_calls,
-                           self.config.rate_limit_period) as api_client:
-                               
-            for i in range(0, len(records), self.config.batch_size):
-                batch = records[i:i + self.config.batch_size]
-                
-                # Process each record in the batch
-                for record in batch:
-                    try:
-                        await self._process_with_retry(api_client, record)
-                        success_count += 1
-                    except Exception as e:
-                        self.logger.error(f"Failed to process record: {str(e)}")
-                        error_count += 1
-                        self.metrics.record_error(type(e).__name__)
-                
-                # Calculate progress
-                progress = (i + len(batch)) / len(records) * 100
-                self.logger.info(f"Progress: {progress:.1f}% ({i + len(batch)}/{len(records)})")
-                
-        # Calculate processing speed
-        duration = (datetime.now() - start_time).total_seconds()
-        records_per_second = len(records) / duration if duration > 0 else 0
-        
-        return {
-            'success_count': success_count,
-            'error_count': error_count,
-            'records_per_second': records_per_second,
-            'duration_seconds': duration
-        }
-    
-    async def _process_with_retry(self, api_client: APIClient, record: Dict[str, Any]) -> None:
-        """Process a single record with retry logic"""
-        for attempt in range(self.config.retry_attempts):
+        Args:
+            df: Input Spark DataFrame
+            metrics: ProcessingMetrics instance to track performance
+            
+        Returns:
+            Processed Spark DataFrame with API response data
+        """
+        # Create a simple function for API processing that doesn't use thread locks
+        def process_record(record_json):
             try:
-                await api_client.process_record(record)
-                return
-            except RateLimitExceeded:
-                # Wait before retrying
-                await asyncio.sleep(self.config.retry_delay * (attempt + 1))
-                self.metrics.record_retry()
-            except CircuitBreakerError:
-                # Wait for circuit breaker timeout
-                await asyncio.sleep(self.config.circuit_breaker_timeout)
-                self.metrics.record_retry()
+                # Parse the record JSON
+                record = json.loads(record_json) if isinstance(record_json, str) else record_json
+                
+                start_time = time.time()
+                
+                # Make synchronous API call
+                response = requests.post(
+                    "https://jsonplaceholder.typicode.com/posts",  # Using a test API
+                    json=record,
+                    timeout=30
+                )
+                response.raise_for_status()
+                
+                # Return success response
+                return json.dumps({
+                    "success": True,
+                    "data": response.json(),
+                    "latency": time.time() - start_time
+                })
             except Exception as e:
-                if attempt == self.config.retry_attempts - 1:
-                    raise
-                await asyncio.sleep(self.config.retry_delay * (attempt + 1))
-                self.metrics.record_retry()
+                logger.error(f"Error processing record: {str(e)}")
+                return json.dumps({
+                    "success": False,
+                    "error": str(e),
+                    "latency": time.time() - start_time
+                })
+        
+        # Register UDF
+        process_udf = udf(process_record, StringType())
+        
+        # Convert all columns to a JSON string
+        df_json = df.select(to_json(struct([df[x] for x in df.columns])).alias("record"))
+        
+        # Process records
+        metrics.total_records = df.count()
+        result_df = df_json.withColumn("api_response", process_udf(col("record")))
+        
+        # Force evaluation and collect metrics
+        result_df.cache()
+        responses = result_df.select("api_response").collect()
+        
+        # Update metrics from collected responses
+        for row in responses:
+            response = json.loads(row.api_response)
+            if response.get("success", False):
+                metrics.processed_records += 1
+                metrics.record_api_latency(response["latency"])
+            else:
+                metrics.record_error(response["error"])
+        
+        return result_df
 
 class Processor:
     """Main processor class"""

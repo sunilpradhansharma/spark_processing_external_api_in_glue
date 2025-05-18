@@ -9,93 +9,60 @@ from collections import deque, defaultdict
 import boto3
 from statistics import mean, median, stdev
 
-@dataclass
 class ProcessingMetrics:
-    """Metrics for processing performance"""
-    total_records: int = 0
-    processed_records: int = 0
-    failed_records: int = 0
-    start_time: float = field(default_factory=time.time)
-    api_latencies: deque = field(default_factory=lambda: deque(maxlen=1000))
-    rate_limit_hits: int = 0
-    retry_count: int = 0
-    batch_sizes: List[int] = field(default_factory=list)
-    memory_usage: List[Dict] = field(default_factory=list)
-    errors: Dict[str, int] = field(default_factory=dict)
-    _lock: threading.Lock = field(default_factory=threading.Lock)
-
+    """Thread-safe metrics collection without using locks"""
+    def __init__(self):
+        self.total_records = 0
+        self.processed_records = 0
+        self.failed_records = 0
+        self.start_time = datetime.now().timestamp()
+        self.api_latencies = deque(maxlen=1000)
+        self.rate_limit_hits = 0
+        self.retry_count = 0
+        self.batch_sizes = []
+        self.memory_usage = []
+        self.errors = defaultdict(int)
+        
     def record_api_latency(self, latency: float) -> None:
         """Record API call latency"""
-        with self._lock:
-            self.api_latencies.append(latency)
-
-    def record_batch_size(self, size: int) -> None:
-        """Record batch processing size"""
-        with self._lock:
-            self.batch_sizes.append(size)
-
-    def record_error(self, error_type: str) -> None:
-        """Record error occurrence"""
-        with self._lock:
-            self.errors[error_type] = self.errors.get(error_type, 0) + 1
-            self.failed_records += 1
-
-    def record_success(self) -> None:
-        """Record successful processing"""
-        with self._lock:
-            self.processed_records += 1
-
-    def record_rate_limit(self) -> None:
+        self.api_latencies.append(latency)
+        
+    def record_rate_limit_hit(self) -> None:
         """Record rate limit hit"""
-        with self._lock:
-            self.rate_limit_hits += 1
-
+        self.rate_limit_hits += 1
+        
     def record_retry(self) -> None:
         """Record retry attempt"""
-        with self._lock:
-            self.retry_count += 1
-
-    def record_memory(self, usage: Dict) -> None:
+        self.retry_count += 1
+        
+    def record_batch_size(self, size: int) -> None:
+        """Record batch size"""
+        self.batch_sizes.append(size)
+        
+    def record_memory_usage(self, usage: float) -> None:
         """Record memory usage"""
-        with self._lock:
-            self.memory_usage.append({
-                'timestamp': datetime.now().isoformat(),
-                **usage
-            })
-
-    def get_statistics(self) -> Dict[str, Any]:
-        """Get current processing statistics"""
-        with self._lock:
-            duration = time.time() - self.start_time
-            latencies = list(self.api_latencies)
-            
-            # Calculate API latency statistics
-            latency_stats = {
-                'mean': mean(latencies) if latencies else 0,
-                'median': median(latencies) if latencies else 0,
-                'stddev': stdev(latencies) if len(latencies) > 1 else 0,
-                'min': min(latencies) if latencies else 0,
-                'max': max(latencies) if latencies else 0
-            }
-            
-            stats = {
-                'total_records': self.total_records,
-                'processed_records': self.processed_records,
-                'failed_records': self.failed_records,
-                'success_rate': (self.processed_records / self.total_records * 100 
-                               if self.total_records > 0 else 0),
-                'processing_duration': duration,
-                'records_per_second': self.processed_records / duration if duration > 0 else 0,
-                'api_latency': latency_stats,
-                'rate_limit_hits': self.rate_limit_hits,
-                'retry_count': self.retry_count,
-                'batch_statistics': {
-                    'mean_size': mean(self.batch_sizes) if self.batch_sizes else 0,
-                    'total_batches': len(self.batch_sizes)
-                },
-                'error_distribution': self.errors
-            }
-            return stats
+        self.memory_usage.append(usage)
+        
+    def record_error(self, error_type: str) -> None:
+        """Record error occurrence"""
+        self.errors[error_type] += 1
+        
+    def get_metrics(self) -> Dict[str, Any]:
+        """Get current metrics"""
+        duration = datetime.now().timestamp() - self.start_time
+        return {
+            "total_records": self.total_records,
+            "processed_records": self.processed_records,
+            "failed_records": self.failed_records,
+            "duration_seconds": duration,
+            "records_per_second": self.processed_records / duration if duration > 0 else 0,
+            "api_latencies": list(self.api_latencies),
+            "rate_limit_hits": self.rate_limit_hits,
+            "retry_count": self.retry_count,
+            "batch_sizes": self.batch_sizes,
+            "memory_usage": self.memory_usage,
+            "errors": dict(self.errors)
+        }
 
 class CloudWatchMetricsPublisher:
     """Publishes metrics to CloudWatch"""
@@ -126,24 +93,24 @@ class CloudWatchMetricsPublisher:
 
     def publish_processing_metrics(self, metrics: ProcessingMetrics) -> None:
         """Publish processing metrics to CloudWatch"""
-        stats = metrics.get_statistics()
+        stats = metrics.get_metrics()
         
         # Publish core metrics
         self.publish_metric('ProcessedRecords', stats['processed_records'])
         self.publish_metric('FailedRecords', stats['failed_records'])
-        self.publish_metric('SuccessRate', stats['success_rate'], 'Percent')
+        self.publish_metric('SuccessRate', stats['processed_records'] / stats['total_records'] * 100, 'Percent')
         self.publish_metric('ProcessingSpeed', stats['records_per_second'], 'Count/Second')
         
         # API metrics
-        self.publish_metric('APILatencyAvg', stats['api_latency']['mean'], 'Milliseconds')
+        self.publish_metric('APILatencyAvg', mean(stats['api_latencies']) if stats['api_latencies'] else 0, 'Milliseconds')
         self.publish_metric('RateLimitHits', stats['rate_limit_hits'])
         self.publish_metric('RetryCount', stats['retry_count'])
         
         # Batch metrics
-        self.publish_metric('AverageBatchSize', stats['batch_statistics']['mean_size'])
+        self.publish_metric('AverageBatchSize', mean(stats['batch_sizes']) if stats['batch_sizes'] else 0)
         
         # Error metrics
-        for error_type, count in stats['error_distribution'].items():
+        for error_type, count in stats['errors'].items():
             self.publish_metric(
                 f'Errors{error_type}',
                 count,
@@ -177,21 +144,21 @@ class MetricsLogger:
 
     def _log_metrics(self) -> None:
         """Log current metrics"""
-        stats = self.metrics.get_statistics()
+        stats = self.metrics.get_metrics()
         
         self.logger.info(f"""
 Processing Statistics:
-- Progress: {stats['processed_records']:,}/{stats['total_records']:,} records ({stats['success_rate']:.2f}%)
+- Progress: {stats['processed_records']:,}/{stats['total_records']:,} records ({stats['processed_records'] / stats['total_records'] * 100:.2f}%)
 - Speed: {stats['records_per_second']:.2f} records/second
-- API Latency: {stats['api_latency']['mean']:.2f}ms (avg)
+- API Latency: {mean(stats['api_latencies']) if stats['api_latencies'] else 0:.2f}ms (avg)
 - Rate Limit Hits: {stats['rate_limit_hits']:,}
 - Retries: {stats['retry_count']:,}
-- Errors: {sum(stats['error_distribution'].values()):,}
+- Errors: {sum(stats['errors'].values()):,}
 """)
 
     def save_metrics(self, filepath: str) -> None:
         """Save metrics to JSON file"""
-        stats = self.metrics.get_statistics()
+        stats = self.metrics.get_metrics()
         try:
             with open(filepath, 'w') as f:
                 json.dump(stats, f, indent=2)

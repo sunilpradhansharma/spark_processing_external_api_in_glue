@@ -69,6 +69,7 @@ def spark():
             .config("spark.hadoop.fs.s3a.path.style.access", "true")
             .config("spark.hadoop.fs.s3a.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem")
             .config("spark.hadoop.fs.s3a.aws.credentials.provider", "org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider")
+            .config("spark.eventLog.enabled", "false")  # Disable event logging for tests
             .getOrCreate())
     
     logger.info("Created Spark session for testing")

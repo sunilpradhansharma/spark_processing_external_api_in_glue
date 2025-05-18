@@ -2,6 +2,263 @@
 
 A high-performance Python application designed to process large-scale data efficiently using both pandas and PySpark DataFrames. The system is optimized to handle 1 million records from S3 while maintaining strict API rate limits and optimizing resource usage. 
 
+## Quick Start
+
+### Local Development Setup
+
+1. Clone the repository:
+```bash
+git clone <repository-url>
+cd spark_processing_external_api_in_glue
+```
+
+2. Set up the local environment:
+```bash
+# Create and activate virtual environment
+python -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
+
+# Install dependencies
+pip install -r tests/requirements-local.txt
+```
+
+3. Start the local development environment:
+```bash
+# Start LocalStack and Spark environment
+docker-compose up --build
+```
+
+### Running Tests
+
+The project includes comprehensive test suites that can be run in different ways:
+
+1. Using Docker (Recommended):
+```bash
+# Run all tests in Docker environment
+docker-compose up --build
+
+# Run specific test file
+docker-compose run spark pytest tests/test_local.py -v
+```
+
+2. Running tests locally:
+```bash
+# Run all tests
+pytest tests/
+
+# Run specific test file
+pytest tests/test_local.py
+
+# Run with coverage report
+pytest --cov=src tests/
+```
+
+3. Performance Tests:
+```bash
+# Run performance tests
+pytest tests/test_performance_metrics.py
+
+# Test with different batch sizes
+BATCH_SIZE=500 pytest tests/test_performance_metrics.py
+BATCH_SIZE=2000 pytest tests/test_performance_metrics.py
+```
+
+## Project Structure
+
+```
+.
+├── src/
+│   ├── processor.py          # Main processing logic
+│   ├── metrics.py           # Metrics collection
+│   └── exceptions.py        # Custom exceptions
+├── tests/
+│   ├── conftest.py          # Test fixtures
+│   ├── test_local.py        # Local integration tests
+│   ├── test_performance_metrics.py  # Performance tests
+│   └── requirements-local.txt       # Local testing dependencies
+├── infrastructure/          # AWS CDK infrastructure code
+├── scripts/                # Utility scripts
+├── logs/                   # Log files directory
+├── data/                   # Test data directory
+├── Dockerfile             # Docker configuration
+└── docker-compose.yml     # Docker Compose configuration
+```
+
+## Testing Environment
+
+### Local Testing Stack
+
+The local testing environment uses:
+- Docker containers for isolation
+- LocalStack for S3 emulation
+- Jupyter PySpark notebook (spark-3.5.0) for Spark processing
+- pytest for test execution
+- Custom fixtures for test data and S3 buckets
+
+### Test Categories
+
+1. **Unit Tests** (`test_local.py`):
+   - API client functionality
+   - Batch processing
+   - Error handling
+   - Metrics collection
+
+2. **Performance Tests** (`test_performance_metrics.py`):
+   - Processing speed
+   - Memory utilization
+   - API call patterns
+   - Resource usage
+
+3. **Integration Tests**:
+   - End-to-end workflow
+   - S3 operations
+   - API integration
+   - Metrics publishing
+
+### Test Data
+
+- Sample records for testing
+- Configurable batch sizes
+- Automated test data generation
+- S3 bucket simulation
+
+## Performance Optimization
+
+### Local Testing Performance
+- Optimized memory settings
+- Configured proper parallelism
+- Efficient test data handling
+- Performance monitoring
+
+### Spark Configuration
+```python
+spark_conf = {
+    # Memory Configuration
+    "spark.memory.fraction": "0.8",
+    "spark.memory.storageFraction": "0.3",
+    "spark.memory.offHeap.enabled": "true",
+    "spark.memory.offHeap.size": "10g",
+    
+    # Execution Configuration
+    "spark.default.parallelism": "200",
+    "spark.sql.shuffle.partitions": "200",
+    "spark.speculation": "true",
+    
+    # Dynamic Allocation
+    "spark.dynamicAllocation.enabled": "true",
+    "spark.dynamicAllocation.minExecutors": "2",
+    "spark.dynamicAllocation.maxExecutors": "20"
+}
+```
+
+## Development Workflow
+
+### 1. Local Development
+```bash
+# Start local environment
+docker-compose up -d
+
+# Access Spark UI
+open http://localhost:4040
+
+# Monitor LocalStack
+open http://localhost:4566
+
+# Run tests
+docker-compose exec spark pytest tests/
+
+# Clean up
+docker-compose down -v
+```
+
+### 2. Test Data Management
+```bash
+# Generate test data
+docker-compose exec spark python scripts/generate_test_data.py --records 1000
+
+# Verify test data
+docker-compose exec spark python scripts/verify_test_data.py
+
+# Clean test data
+docker-compose exec spark python scripts/cleanup_test_data.py
+```
+
+## Monitoring and Debugging
+
+### 1. Local Testing Logs
+- Spark logs available in `/app/logs`
+- LocalStack logs accessible via Docker
+- Test execution logs with detailed output
+- Performance metrics collection
+
+### 2. Test Metrics
+The system collects comprehensive test metrics:
+- Processing speed and throughput
+- Memory utilization
+- API call patterns
+- Error rates and types
+- Resource usage statistics
+
+## Recent Updates
+
+1. **Testing Infrastructure:**
+   - Added comprehensive test suites
+   - Implemented performance testing
+   - Added LocalStack integration
+   - Enhanced metrics collection
+
+2. **Code Improvements:**
+   - Enhanced error handling
+   - Improved API client resilience
+   - Added performance monitoring
+   - Optimized memory usage
+
+3. **Documentation:**
+   - Added detailed testing guide
+   - Updated configuration examples
+   - Enhanced troubleshooting section
+   - Added performance tuning guide
+
+## Troubleshooting
+
+### Common Issues
+
+1. **Docker Issues:**
+   ```bash
+   # Reset Docker environment
+   docker-compose down -v
+   docker system prune -f
+   docker-compose up --build
+   ```
+
+2. **Memory Issues:**
+   - Adjust Spark memory settings in `spark-defaults.conf`
+   - Monitor memory usage with metrics
+   - Use smaller batch sizes for testing
+
+3. **LocalStack Connection:**
+   - Verify LocalStack is running
+   - Check endpoint configuration
+   - Ensure proper AWS credentials
+
+### Debug Logging
+
+Enable debug logging by setting:
+```python
+logging.basicConfig(level=logging.DEBUG)
+```
+
+## Contributing
+
+1. Fork the repository
+2. Create a feature branch
+3. Run tests locally
+4. Submit pull request
+
+## License
+
+This project is licensed under the MIT License - see the LICENSE file for details.
+
 ## Architecture Overview
 
 ### System Architecture

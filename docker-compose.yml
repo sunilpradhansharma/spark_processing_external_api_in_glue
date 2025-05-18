@@ -14,6 +14,7 @@ services:
       - localstack
     networks:
       - spark-network
+    command: ["python3", "-m", "pytest", "tests/test_local.py", "-v", "--capture=no"]
 
   localstack:
     image: localstack/localstack:2.3.2
