@@ -1,17 +1,36 @@
-version: '3'
+version: '3.8'
+
 services:
   spark:
     build: .
     volumes:
-      - ./data:/app/data
-      - ./src:/app/src
-      - ./tests:/app/tests
-      - ./glue_script.py:/app/glue_script.py
+      - .:/app
+      - ./logs:/app/logs
     environment:
-      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
-      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
-      - AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION}
-      - PYTHONPATH=/app
+      - AWS_ACCESS_KEY_ID=test
+      - AWS_SECRET_ACCESS_KEY=test
+      - AWS_DEFAULT_REGION=us-east-1
+    depends_on:
+      - localstack
+    networks:
+      - spark-network
+
+  localstack:
+    image: localstack/localstack:2.3.2
     ports:
-      - "4040:4040"  # Spark UI
-    command: python3 -m pytest tests/test_local.py -v 
+      - "4566:4566"
+    environment:
+      - SERVICES=s3
+      - DEBUG=1
+      - DATA_DIR=/tmp/localstack/data
+      - AWS_ACCESS_KEY_ID=test
+      - AWS_SECRET_ACCESS_KEY=test
+      - AWS_DEFAULT_REGION=us-east-1
+    volumes:
+      - ./data:/tmp/localstack/data
+    networks:
+      - spark-network
+
+networks:
+  spark-network:
+    driver: bridge 
