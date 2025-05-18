@@ -1,13 +1,13 @@
 import time
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Any
 from datetime import datetime
 import json
 import threading
 import logging
-from collections import deque
+from collections import deque, defaultdict
 import boto3
-from statistics import mean, median
+from statistics import mean, median, stdev
 
 @dataclass
 class ProcessingMetrics:
@@ -63,11 +63,20 @@ class ProcessingMetrics:
                 **usage
             })
 
-    def get_statistics(self) -> Dict:
+    def get_statistics(self) -> Dict[str, Any]:
         """Get current processing statistics"""
         with self._lock:
             duration = time.time() - self.start_time
             latencies = list(self.api_latencies)
+            
+            # Calculate API latency statistics
+            latency_stats = {
+                'mean': mean(latencies) if latencies else 0,
+                'median': median(latencies) if latencies else 0,
+                'stddev': stdev(latencies) if len(latencies) > 1 else 0,
+                'min': min(latencies) if latencies else 0,
+                'max': max(latencies) if latencies else 0
+            }
             
             stats = {
                 'total_records': self.total_records,
@@ -77,12 +86,7 @@ class ProcessingMetrics:
                                if self.total_records > 0 else 0),
                 'processing_duration': duration,
                 'records_per_second': self.processed_records / duration if duration > 0 else 0,
-                'api_latency': {
-                    'mean': mean(latencies) if latencies else 0,
-                    'median': median(latencies) if latencies else 0,
-                    'min': min(latencies) if latencies else 0,
-                    'max': max(latencies) if latencies else 0
-                },
+                'api_latency': latency_stats,
                 'rate_limit_hits': self.rate_limit_hits,
                 'retry_count': self.retry_count,
                 'batch_statistics': {

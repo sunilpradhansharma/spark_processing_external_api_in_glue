@@ -42,7 +42,7 @@ from pyspark.sql.functions import col, udf
 from pyspark.sql.types import StringType
 import requests
 
-from src.exceptions import APIError, RateLimitExceeded
+from src.exceptions import APIError, RateLimitExceeded, CircuitBreakerError
 from src.metrics import ProcessingMetrics
 from src.monitor import TelemetryManager
 
@@ -79,8 +79,12 @@ class Config:
     api_endpoint: str
     batch_size: int = 1000
     max_workers: int = 20
-    rate_limit_calls: int = 100
-    rate_limit_period: int = 60
+    rate_limit_calls: int = 5000
+    rate_limit_period: int = 1
+    retry_attempts: int = 3
+    retry_delay: float = 1.0
+    circuit_breaker_threshold: int = 5
+    circuit_breaker_timeout: int = 60
     chunk_size: int = 8192  # 8KB chunks for reading from S3
     max_retries: int = 3
     rate_limit: int = 5000  # requests per second
@@ -128,35 +132,38 @@ class S3StreamReader:
 
 class CircuitBreaker:
     """Circuit breaker implementation for API calls"""
-    def __init__(self, failure_threshold: int = 5, reset_timeout: int = 60):
+    def __init__(self, failure_threshold: int, recovery_timeout: int):
         self.failure_threshold = failure_threshold
-        self.reset_timeout = reset_timeout
+        self.recovery_timeout = recovery_timeout
         self.failures = 0
         self.last_failure_time = None
-        self.state = "closed"  # closed, open, half-open
+        self.state = "CLOSED"
         
     def record_failure(self):
         self.failures += 1
-        self.last_failure_time = time.time()
+        self.last_failure_time = datetime.now()
+        
         if self.failures >= self.failure_threshold:
-            self.state = "open"
-            
+            self.state = "OPEN"
+    
     def record_success(self):
         self.failures = 0
-        self.state = "closed"
-        
+        self.state = "CLOSED"
+    
     def can_execute(self) -> bool:
-        if self.state == "closed":
+        if self.state == "CLOSED":
             return True
-        
-        if self.state == "open":
-            if time.time() - self.last_failure_time > self.reset_timeout:
-                self.state = "half-open"
-                return True
+            
+        if self.state == "OPEN":
+            # Check if recovery timeout has passed
+            if self.last_failure_time:
+                elapsed = (datetime.now() - self.last_failure_time).total_seconds()
+                if elapsed >= self.recovery_timeout:
+                    self.state = "HALF-OPEN"
+                    return True
             return False
             
-        # half-open state
-        return True
+        return self.state == "HALF-OPEN"
 
 class AdaptiveRateLimiter:
     """Adaptive rate limiting based on API response times and errors"""
@@ -595,255 +602,122 @@ class AnalyticsEngine:
             self.metrics.clear()
 
 class APIClient:
-    def __init__(self, endpoint: str, rate_limit: int, max_retries: int):
+    def __init__(self, endpoint: str, rate_limit: int, rate_period: int):
         self.endpoint = endpoint
-        self.session = requests.Session()
         self.rate_limit = rate_limit
-        self.max_retries = max_retries
+        self.rate_period = rate_period
+        self.metrics = ProcessingMetrics()
+        self.circuit_breaker = CircuitBreaker(5, 60)
+        self.semaphore = asyncio.Semaphore(rate_limit)
+        self.session = None
         
-    @sleep_and_retry
-    @limits(calls=1, period=1)
-    def process_record(self, record: Dict) -> Dict:
+    async def __aenter__(self):
+        timeout = aiohttp.ClientTimeout(total=30)
+        self.session = aiohttp.ClientSession(timeout=timeout)
+        return self
+        
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        if self.session:
+            await self.session.close()
+            
+    async def process_record(self, record: Dict[str, Any]) -> Dict[str, Any]:
+        if not self.circuit_breaker.can_execute():
+            raise CircuitBreakerError("Circuit breaker is OPEN")
+            
+        start_time = datetime.now()
+        
         try:
-            response = self.session.post(
-                self.endpoint,
-                json=record,
-                timeout=30
-            )
-            response.raise_for_status()
-            return response.json()
-        except requests.exceptions.RequestException as e:
+            async with self.semaphore:
+                async with self.session.post(self.endpoint, json=record) as response:
+                    if response.status == 429:  # Rate limit exceeded
+                        self.metrics.record_rate_limit_hit()
+                        retry_after = int(response.headers.get('Retry-After', 1))
+                        raise RateLimitExceeded(f"Rate limit exceeded. Retry after {retry_after} seconds")
+                        
+                    response.raise_for_status()
+                    result = await response.json()
+                    
+                    # Record success metrics
+                    self.circuit_breaker.record_success()
+                    self.metrics.record_api_latency((datetime.now() - start_time).total_seconds() * 1000)
+                    
+                    return result
+                    
+        except aiohttp.ClientError as e:
+            self.circuit_breaker.record_failure()
+            self.metrics.record_error('api_error')
             raise APIError(f"API request failed: {str(e)}")
 
-class AsyncAPIClient:
-    """Enhanced async API client with ML-based optimization"""
-    
-    def __init__(self,
-                 endpoint: str,
-                 rate_limit_calls: int = 100,
-                 rate_limit_period: int = 60,
-                 max_concurrent_requests: int = 50,
-                 timeout: int = 30,
-                 max_retries: int = 3,
-                 compress_threshold: int = 1024):
-        
-        self.endpoint = endpoint
-        self.rate_limit_calls = rate_limit_calls
-        self.rate_limit_period = rate_limit_period
-        self.max_concurrent_requests = max_concurrent_requests
-        self.timeout = timeout
-        self.compress_threshold = compress_threshold
-        
-        self._session = None
-        self._semaphore = asyncio.Semaphore(max_concurrent_requests)
-        self.circuit_breaker = CircuitBreaker()
-        self.predictive_limiter = PredictiveRateLimiter(initial_rate=rate_limit_calls)
-        self.telemetry = Telemetry()
-        self.retry_strategy = RetryStrategy(max_retries=max_retries)
-        self.connection_pool = AdaptiveConnectionPool()
-        self.fault_isolation = FaultIsolation()
-        self.health_check = HealthCheck()
-        self.performance_predictor = PerformancePredictor()
-        self.performance_profiler = PerformanceProfiler()
-        self.analytics_engine = AnalyticsEngine()
-        
-        # Initialize health checks
-        self.health_check.add_check("api", self._check_api_health)
-        
-        # Setup signal handlers
-        self._setup_signal_handlers()
-        
-        # Enhanced logging
-        self.logger = logging.getLogger(__name__)
-        self.logger.setLevel(logging.INFO)
-        handler = logging.handlers.RotatingFileHandler(
-            'logs/api_client.log', maxBytes=10*1024*1024, backupCount=5)
-        self.logger.addHandler(handler)
-
-    async def __aenter__(self):
-        """Async context manager entry"""
-        if not self._session:
-            self._session = aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=self.timeout))
-        return self
-
-    async def __aexit__(self, exc_type, exc_val, exc_tb):
-        """Async context manager exit"""
-        if self._session:
-            await self._session.close()
-            self._session = None
-
-    def _setup_signal_handlers(self):
-        """Setup graceful shutdown handlers"""
-        for sig in (signal.SIGTERM, signal.SIGINT):
-            signal.signal(sig, self._handle_shutdown)
-            
-    def _handle_shutdown(self, signum, frame):
-        """Handle shutdown signals"""
-        logger.info("Received shutdown signal, cleaning up...")
-        if self._session:
-            asyncio.create_task(self._session.close())
-
-    async def _check_api_health(self) -> Dict:
-        """Check API endpoint health"""
-        try:
-            async with self._session.get(f"{self.endpoint}/health") as response:
-                return {
-                    "status": "healthy" if response.status == 200 else "unhealthy",
-                    "response_time": response.elapsed.total_seconds() if hasattr(response, 'elapsed') else 0
-                }
-        except Exception as e:
-            return {
-                "status": "error",
-                "error": str(e)
-            }
-
-    async def process_record(self, record: Dict, priority: Priority = Priority.MEDIUM) -> Dict:
-        """Process a single record with ML-based optimization"""
-        start_time = time.time()
-        
-        try:
-            # Check circuit breaker
-            if not self.circuit_breaker.can_execute():
-                raise Exception("Circuit breaker is open")
-                
-            # Check fault isolation
-            if self.fault_isolation.is_isolated(self.endpoint):
-                raise Exception("Endpoint is isolated due to errors")
-                
-            # Get connection from pool
-            if not self.connection_pool.acquire():
-                raise Exception("No available connections")
-                
-            try:
-                # Make API call with retry strategy
-                async with self._semaphore:
-                    response = await self.retry_strategy.execute_with_retry(
-                        self._make_api_call,
-                        record
-                    )
-                    
-                # Update metrics and return result
-                duration = time.time() - start_time
-                self.telemetry.record_request(duration, True, len(str(record)))
-                self.analytics_engine.add_metric(datetime.now(), {
-                    'latency': duration,
-                    'success': True,
-                    'record_size': len(str(record)),
-                    'priority': priority.value
-                })
-                
-                return response
-                
-            finally:
-                self.connection_pool.release(time.time() - start_time)
-                
-        except Exception as e:
-            duration = time.time() - start_time
-            self.telemetry.record_request(duration, False, len(str(record)))
-            self.analytics_engine.add_metric(datetime.now(), {
-                'latency': duration,
-                'success': False,
-                'error_type': type(e).__name__,
-                'record_size': len(str(record)),
-                'priority': priority.value
-            })
-            
-            # Update error tracking
-            self.circuit_breaker.record_failure()
-            self.fault_isolation.record_error(self.endpoint)
-            
-            raise
-
-    async def _make_api_call(self, record: Dict) -> Dict:
-        """Make the actual API call with the current session."""
-        if not self._session:
-            raise RuntimeError("Session not initialized")
-            
-        # Compress if needed
-        data = record
-        headers = {}
-        if len(str(record)) > self.compress_threshold:
-            data = gzip.compress(json.dumps(record).encode())
-            headers['Content-Encoding'] = 'gzip'
-            
-        async with self._session.post(
-            self.endpoint,
-            json=data if 'Content-Encoding' not in headers else None,
-            data=data if 'Content-Encoding' in headers else None,
-            headers=headers
-        ) as response:
-            response.raise_for_status()
-            return await response.json()
-
-    async def get_analytics(self) -> Dict:
-        """Get comprehensive analytics and insights"""
-        return {
-            'insights': self.analytics_engine.get_insights(),
-            'performance_profile': self.performance_profiler.get_stats(),
-            'ml_metrics': {
-                'anomaly_score': self.performance_predictor.predict_optimal_rate()
-            }
-        }
-
 class BatchProcessor:
-    """Handles batch processing of records using AsyncAPIClient"""
-    
     def __init__(self, config: Config):
         self.config = config
-        self.api_client = AsyncAPIClient(
-            endpoint=config.api_endpoint,
-            rate_limit_calls=config.rate_limit_calls,
-            rate_limit_period=config.rate_limit_period,
-            max_concurrent_requests=min(config.rate_limit_calls, 50),
-            timeout=30,
-            max_retries=3
-        )
+        self.metrics = ProcessingMetrics()
+        self.logger = logging.getLogger(__name__)
         
-    async def process_partition(self, partition: List[Dict]) -> Dict:
-        """Process a partition of records using async API client with enhanced metrics"""
-        metrics = {
-            'success_count': 0,
-            'error_count': 0,
-            'start_time': time.time(),
-            'latencies': [],
-            'rate_limits': 0,
-            'retries': 0
-        }
+    async def process_partition(self, records: List[Dict[str, Any]]) -> Dict[str, Any]:
+        start_time = datetime.now()
+        success_count = 0
+        error_count = 0
         
-        async with self.api_client as client:
-            for i in range(0, len(partition), self.config.batch_size):
-                batch = partition[i:i + self.config.batch_size]
-                results = await client.process_batch(batch)
+        # Process records in batches
+        async with APIClient(self.config.api_endpoint, 
+                           self.config.rate_limit_calls,
+                           self.config.rate_limit_period) as api_client:
+                               
+            for i in range(0, len(records), self.config.batch_size):
+                batch = records[i:i + self.config.batch_size]
                 
-                for result in results:
-                    if result['success']:
-                        metrics['success_count'] += 1
-                        metrics['latencies'].append(result['duration'] * 1000)  # Convert to ms
-                    else:
-                        metrics['error_count'] += 1
-                        if 'Rate limit exceeded' in result.get('error', ''):
-                            metrics['rate_limits'] += 1
-                        if 'retry' in result.get('error', '').lower():
-                            metrics['retries'] += 1
+                # Process each record in the batch
+                for record in batch:
+                    try:
+                        await self._process_with_retry(api_client, record)
+                        success_count += 1
+                    except Exception as e:
+                        self.logger.error(f"Failed to process record: {str(e)}")
+                        error_count += 1
+                        self.metrics.record_error(type(e).__name__)
+                
+                # Calculate progress
+                progress = (i + len(batch)) / len(records) * 100
+                self.logger.info(f"Progress: {progress:.1f}% ({i + len(batch)}/{len(records)})")
+                
+        # Calculate processing speed
+        duration = (datetime.now() - start_time).total_seconds()
+        records_per_second = len(records) / duration if duration > 0 else 0
         
-        metrics['duration'] = time.time() - metrics['start_time']
-        metrics['records_per_second'] = (
-            metrics['success_count'] / metrics['duration']
-            if metrics['duration'] > 0 else 0
-        )
-        metrics['avg_latency'] = (
-            sum(metrics['latencies']) / len(metrics['latencies'])
-            if metrics['latencies'] else 0
-        )
-        
-        return metrics
+        return {
+            'success_count': success_count,
+            'error_count': error_count,
+            'records_per_second': records_per_second,
+            'duration_seconds': duration
+        }
+    
+    async def _process_with_retry(self, api_client: APIClient, record: Dict[str, Any]) -> None:
+        """Process a single record with retry logic"""
+        for attempt in range(self.config.retry_attempts):
+            try:
+                await api_client.process_record(record)
+                return
+            except RateLimitExceeded:
+                # Wait before retrying
+                await asyncio.sleep(self.config.retry_delay * (attempt + 1))
+                self.metrics.record_retry()
+            except CircuitBreakerError:
+                # Wait for circuit breaker timeout
+                await asyncio.sleep(self.config.circuit_breaker_timeout)
+                self.metrics.record_retry()
+            except Exception as e:
+                if attempt == self.config.retry_attempts - 1:
+                    raise
+                await asyncio.sleep(self.config.retry_delay * (attempt + 1))
+                self.metrics.record_retry()
 
 class Processor:
     """Main processor class"""
     def __init__(self, config: Config):
         self.config = config
         self.reader = S3StreamReader(config.s3_bucket, config.s3_key)
-        self.api_client = AsyncAPIClient(
+        self.api_client = APIClient(
             config.api_endpoint,
             config.rate_limit_calls,
             config.rate_limit_period
@@ -857,20 +731,20 @@ class Processor:
     async def process_batch(self, batch: list[str]) -> None:
         """Process a batch of records"""
         async with self.api_client as client:
-        for record in batch:
-            try:
+            for record in batch:
+                try:
                     # Parse the JSON string into a dictionary
                     record_dict = json.loads(record)
                     await client.process_record(record_dict)
-                self.queue.increment_processed()
+                    self.queue.increment_processed()
                 except json.JSONDecodeError as e:
                     with self.lock:
                         self.error_count += 1
                     logger.error(f"Error parsing record JSON: {str(e)}")
-            except Exception as e:
-                with self.lock:
-                    self.error_count += 1
-                logger.error(f"Error processing record: {str(e)}")
+                except Exception as e:
+                    with self.lock:
+                        self.error_count += 1
+                    logger.error(f"Error processing record: {str(e)}")
 
     async def consumer(self) -> None:
         """Consumer coroutine function"""
@@ -926,10 +800,10 @@ class Processor:
             await asyncio.gather(*consumers)
 
         finally:
-        end_time = datetime.now()
-        duration = end_time - start_time
-        
-        logger.info(f"""
+            end_time = datetime.now()
+            duration = end_time - start_time
+            
+            logger.info(f"""
 Processing completed:
 - Total processed: {self.queue.processed_count:,} records
 - Error count: {self.error_count:,} records

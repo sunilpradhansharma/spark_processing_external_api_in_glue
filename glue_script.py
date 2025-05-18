@@ -113,13 +113,6 @@ try:
     
     logger.info(f"Repartitioned data into {partition_count} partitions")
 
-    # Create API client
-    api_client = APIClient(
-        config.api_endpoint,
-        config.rate_limit_calls,
-        config.rate_limit_period
-    )
-
     # Process records function
     async def process_partition_async(partition):
         # Convert partition to list of dictionaries
@@ -151,7 +144,7 @@ try:
     # Aggregate results
     total_success = sum(r['success_count'] for r in results)
     total_errors = sum(r['error_count'] for r in results)
-    avg_speed = mean([r['records_per_second'] for r in results])
+    records_per_second = sum(r['records_per_second'] for r in results) / len(results)
 
     # Final metrics
     metrics_logger.stop()
@@ -168,7 +161,7 @@ try:
 Processing completed:
 Total records processed successfully: {total_success:,}
 Total errors: {total_errors:,}
-Average processing speed: {avg_speed:.2f} records/second
+Average processing speed: {records_per_second:.2f} records/second
 API Statistics:
 - Average latency: {final_stats['api_latency']['mean']:.2f}ms
 - Rate limit hits: {final_stats['rate_limit_hits']:,}
