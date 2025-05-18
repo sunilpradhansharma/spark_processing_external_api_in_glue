@@ -7,33 +7,21 @@ A high-performance Python application designed to process large-scale data effic
 ### System Architecture
 
 ```mermaid
-graph TB
-    subgraph AWS Cloud
-        S3[(S3 Bucket)]
-        KMS[KMS Key]
-        
-        subgraph Glue Job
-            SparkETL[Spark ETL Process]
-            DataProcessor[Data Processor]
-            APIClient[API Client]
-        end
-        
-        subgraph Monitoring
-            CW[CloudWatch]
-            Dashboard[Custom Dashboard]
-            Alarms[Alarms]
-        end
-        
-        subgraph Security
-            IAM[IAM Roles]
-            Encryption[KMS Encryption]
-        end
-    end
+flowchart TB
+    %% AWS Cloud Components
+    S3[(S3 Bucket)]
+    KMS([KMS Key])
+    SparkETL([Spark ETL Process])
+    DataProcessor([Data Processor])
+    APIClient([API Client])
+    CW([CloudWatch])
+    Dashboard([Custom Dashboard])
+    Alarms([Alarms])
+    IAM([IAM Roles])
+    Encryption([KMS Encryption])
+    API([External API])
     
-    subgraph External
-        API[External API]
-    end
-    
+    %% Connections
     S3 -->|Encrypted Data| SparkETL
     KMS -->|Encryption Keys| S3
     SparkETL -->|Process| DataProcessor
@@ -42,32 +30,26 @@ graph TB
     DataProcessor -->|Metrics| CW
     CW -->|Visualize| Dashboard
     CW -->|Monitor| Alarms
-    IAM -->|Permissions| Glue Job
+    IAM -->|Permissions| SparkETL
     Encryption -->|Secure| S3
 ```
 
 ### CDK Construct Pattern
 
 ```mermaid
-graph TB
-    subgraph CDK App
-        App[CDK App]
-        Stack[SparkProcessingStack]
-        Construct[SparkProcessingConstruct]
-        
-        subgraph Infrastructure Resources
-            KMSKey[KMS Key]
-            Tags[Resource Tags]
-        end
-        
-        subgraph Application Resources
-            S3[S3 Bucket]
-            Glue[Glue Job]
-            IAM[IAM Roles]
-            CW[CloudWatch]
-        end
-    end
+flowchart TB
+    %% CDK Components
+    App([CDK App])
+    Stack([SparkProcessingStack])
+    Construct([SparkProcessingConstruct])
+    KMSKey([KMS Key])
+    Tags([Resource Tags])
+    S3[(S3 Bucket)]
+    Glue([Glue Job])
+    IAM([IAM Roles])
+    CW([CloudWatch])
     
+    %% Connections
     App -->|Creates| Stack
     Stack -->|Creates| KMSKey
     Stack -->|Creates| Construct
