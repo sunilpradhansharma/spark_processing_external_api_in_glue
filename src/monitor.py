@@ -4,8 +4,74 @@ import psutil
 import logging
 from datetime import datetime
 import matplotlib.pyplot as plt
-from typing import List, Tuple
+from typing import List, Tuple, Dict, Any
 import json
+from dataclasses import dataclass
+from opentelemetry import trace
+from opentelemetry.trace import Status, StatusCode
+
+class TelemetryManager:
+    def __init__(self):
+        self.tracer = trace.get_tracer(__name__)
+        self.metrics = {}
+        
+    def trace_operation(self, name: str):
+        return self.tracer.start_as_current_span(name)
+        
+    def record_metric(self, name: str, value: float, dimensions: Dict[str, str] = None):
+        self.metrics[name] = {
+            "value": value,
+            "timestamp": time.time(),
+            "dimensions": dimensions or {}
+        }
+        
+    def get_metrics(self) -> Dict[str, Any]:
+        return self.metrics
+
+class HealthCheck:
+    def check_system_health(self) -> Dict[str, float]:
+        return {
+            "cpu_usage": psutil.cpu_percent(),
+            "memory_usage": psutil.virtual_memory().percent,
+            "disk_usage": psutil.disk_usage('/').percent
+        }
+        
+    def check_process_health(self) -> Dict[str, float]:
+        process = psutil.Process()
+        return {
+            "memory_mb": process.memory_info().rss / (1024 * 1024),
+            "cpu_percent": process.cpu_percent()
+        }
+
+class SystemMonitor:
+    def __init__(self):
+        self.thresholds = {}
+        self.logger = logging.getLogger(__name__)
+        
+    def get_resource_stats(self) -> Dict[str, float]:
+        stats = {
+            "cpu_percent": psutil.cpu_percent(),
+            "memory_percent": psutil.virtual_memory().percent,
+            "disk_percent": psutil.disk_usage('/').percent,
+            "network_io": psutil.net_io_counters()._asdict()
+        }
+        return stats
+        
+    def set_threshold(self, metric: str, value: float) -> None:
+        self.thresholds[metric] = value
+        
+    def check_thresholds(self, current_stats: Dict[str, float]) -> List[Dict[str, Any]]:
+        alerts = []
+        for metric, threshold in self.thresholds.items():
+            if metric in current_stats and current_stats[metric] > threshold:
+                alerts.append({
+                    "metric": metric,
+                    "threshold": threshold,
+                    "current_value": current_stats[metric],
+                    "timestamp": time.time()
+                })
+                self.logger.warning(f"Threshold exceeded for {metric}: {current_stats[metric]} > {threshold}")
+        return alerts
 
 class ProcessMonitor:
     def __init__(self, pid: int = None):
