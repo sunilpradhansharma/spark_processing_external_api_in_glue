@@ -606,20 +606,25 @@ class APIClient:
         self.endpoint = endpoint
         self.rate_limit = rate_limit
         self.rate_period = rate_period
+        self.circuit_breaker = CircuitBreaker(failure_threshold=5, recovery_timeout=60)
+        self.semaphore = asyncio.Semaphore(10)  # Limit concurrent connections
+        self.session = aiohttp.ClientSession()
+        self.telemetry = Telemetry()
+        self.adaptive_rate_limiter = AdaptiveRateLimiter()
+        self.performance_predictor = PerformancePredictor()
+        self.retry_strategy = RetryStrategy()
+        self.connection_pool = AdaptiveConnectionPool()
+        self.fault_isolation = FaultIsolation()
+        self.health_check = HealthCheck()
+        self.analytics_engine = AnalyticsEngine()
         self.metrics = ProcessingMetrics()
-        self.circuit_breaker = CircuitBreaker(5, 60)
-        self.semaphore = asyncio.Semaphore(rate_limit)
-        self.session = None
-        
+
     async def __aenter__(self):
-        timeout = aiohttp.ClientTimeout(total=30)
-        self.session = aiohttp.ClientSession(timeout=timeout)
         return self
-        
+
     async def __aexit__(self, exc_type, exc_val, exc_tb):
-        if self.session:
-            await self.session.close()
-            
+        await self.session.close()
+
     async def process_record(self, record: Dict[str, Any]) -> Dict[str, Any]:
         if not self.circuit_breaker.can_execute():
             raise CircuitBreakerError("Circuit breaker is OPEN")

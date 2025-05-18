@@ -1,9 +1,9 @@
 {
  "Resources": {
-  "EncryptionKey1B843E66": {
+  "SparkProcessingKey0110089D": {
    "Type": "AWS::KMS::Key",
    "Properties": {
-    "Description": "KMS key for spark-processing-job Spark processing",
+    "Description": "KMS key for Spark processing data encryption",
     "EnableKeyRotation": true,
     "KeyPolicy": {
      "Statement": [
@@ -14,32 +14,92 @@
         "AWS": "arn:aws:iam::152111776500:root"
        },
        "Resource": "*"
+      },
+      {
+       "Action": [
+        "kms:Decrypt*",
+        "kms:Describe*",
+        "kms:Encrypt*",
+        "kms:GenerateDataKey*",
+        "kms:ReEncrypt*"
+       ],
+       "Condition": {
+        "ArnLike": {
+         "kms:EncryptionContext:aws:logs:arn": "arn:aws:logs:us-east-1:152111776500:*"
+        }
+       },
+       "Effect": "Allow",
+       "Principal": {
+        "Service": "logs.amazonaws.com"
+       },
+       "Resource": "*"
       }
      ],
      "Version": "2012-10-17"
-    },
-    "Tags": [
-     {
-      "Key": "Environment",
-      "Value": "development"
-     },
-     {
-      "Key": "ManagedBy",
-      "Value": "CDK"
-     },
-     {
-      "Key": "Project",
-      "Value": "SparkProcessing"
-     }
-    ]
+    }
    },
    "UpdateReplacePolicy": "Retain",
    "DeletionPolicy": "Retain",
    "Metadata": {
-    "aws:cdk:path": "SparkProcessingStack/EncryptionKey/Resource"
+    "aws:cdk:path": "SparkProcessingStack/SparkProcessingKey/Resource"
    }
   },
-  "SparkProcessingProcessingBucketD1A84B62": {
+  "SparkProcessingKeyAlias48897128": {
+   "Type": "AWS::KMS::Alias",
+   "Properties": {
+    "AliasName": "alias/spark-processing-key",
+    "TargetKeyId": {
+     "Fn::GetAtt": [
+      "SparkProcessingKey0110089D",
+      "Arn"
+     ]
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "SparkProcessingStack/SparkProcessingKey/Alias/Resource"
+   }
+  },
+  "GlueSecurityConfig": {
+   "Type": "AWS::Glue::SecurityConfiguration",
+   "Properties": {
+    "EncryptionConfiguration": {
+     "CloudWatchEncryption": {
+      "CloudWatchEncryptionMode": "SSE-KMS",
+      "KmsKeyArn": {
+       "Fn::GetAtt": [
+        "SparkProcessingKey0110089D",
+        "Arn"
+       ]
+      }
+     },
+     "JobBookmarksEncryption": {
+      "JobBookmarksEncryptionMode": "CSE-KMS",
+      "KmsKeyArn": {
+       "Fn::GetAtt": [
+        "SparkProcessingKey0110089D",
+        "Arn"
+       ]
+      }
+     },
+     "S3Encryptions": [
+      {
+       "KmsKeyArn": {
+        "Fn::GetAtt": [
+         "SparkProcessingKey0110089D",
+         "Arn"
+        ]
+       },
+       "S3EncryptionMode": "SSE-KMS"
+      }
+     ]
+    },
+    "Name": "GlueSecurityConfig"
+   },
+   "Metadata": {
+    "aws:cdk:path": "SparkProcessingStack/GlueSecurityConfig"
+   }
+  },
+  "SparkProcessingDataBucketFEF2931B": {
    "Type": "AWS::S3::Bucket",
    "Properties": {
     "BucketEncryption": {
@@ -48,7 +108,7 @@
        "ServerSideEncryptionByDefault": {
         "KMSMasterKeyID": {
          "Fn::GetAtt": [
-          "EncryptionKey1B843E66",
+          "SparkProcessingKey0110089D",
           "Arn"
          ]
         },
@@ -57,84 +117,96 @@
       }
      ]
     },
-    "BucketName": "spark-processing-152111776500-us-east-1",
-    "CorsConfiguration": {
-     "CorsRules": [
-      {
-       "AllowedHeaders": [
-        "*"
-       ],
-       "AllowedMethods": [
-        "GET",
-        "PUT",
-        "POST"
-       ],
-       "AllowedOrigins": [
-        "*"
-       ],
-       "MaxAge": 3000
-      }
-     ]
-    },
-    "LifecycleConfiguration": {
-     "Rules": [
-      {
-       "AbortIncompleteMultipartUpload": {
-        "DaysAfterInitiation": 7
-       },
-       "Id": "CleanupOldVersions",
-       "NoncurrentVersionExpiration": {
-        "NoncurrentDays": 90
-       },
-       "Status": "Enabled"
-      },
-      {
-       "Id": "TransitionToIA",
-       "Status": "Enabled",
-       "Transitions": [
-        {
-         "StorageClass": "STANDARD_IA",
-         "TransitionInDays": 30
-        }
-       ]
-      }
-     ]
-    },
-    "MetricsConfigurations": [
-     {
-      "Id": "EntireBucket",
-      "Prefix": "",
-      "TagFilters": []
-     }
-    ],
-    "PublicAccessBlockConfiguration": {
-     "BlockPublicAcls": true,
-     "BlockPublicPolicy": true,
-     "IgnorePublicAcls": true,
-     "RestrictPublicBuckets": true
-    },
     "Tags": [
      {
-      "Key": "Environment",
-      "Value": "development"
-     },
-     {
-      "Key": "ManagedBy",
-      "Value": "CDK"
-     },
-     {
-      "Key": "Project",
-      "Value": "SparkProcessing"
+      "Key": "aws-cdk:auto-delete-objects",
+      "Value": "true"
      }
     ],
     "VersioningConfiguration": {
      "Status": "Enabled"
     }
    },
-   "UpdateReplacePolicy": "Retain",
-   "DeletionPolicy": "Retain",
+   "UpdateReplacePolicy": "Delete",
+   "DeletionPolicy": "Delete",
    "Metadata": {
-    "aws:cdk:path": "SparkProcessingStack/SparkProcessing/ProcessingBucket/Resource"
+    "aws:cdk:path": "SparkProcessingStack/SparkProcessing/DataBucket/Resource"
+   }
+  },
+  "SparkProcessingDataBucketPolicyD04B7DE6": {
+   "Type": "AWS::S3::BucketPolicy",
+   "Properties": {
+    "Bucket": {
+     "Ref": "SparkProcessingDataBucketFEF2931B"
+    },
+    "PolicyDocument": {
+     "Statement": [
+      {
+       "Action": [
+        "s3:DeleteObject*",
+        "s3:GetBucket*",
+        "s3:List*"
+       ],
+       "Effect": "Allow",
+       "Principal": {
+        "AWS": {
+         "Fn::GetAtt": [
+          "CustomS3AutoDeleteObjectsCustomResourceProviderRole3B1BD092",
+          "Arn"
+         ]
+        }
+       },
+       "Resource": [
+        {
+         "Fn::GetAtt": [
+          "SparkProcessingDataBucketFEF2931B",
+          "Arn"
+         ]
+        },
+        {
+         "Fn::Join": [
+          "",
+          [
+           {
+            "Fn::GetAtt": [
+             "SparkProcessingDataBucketFEF2931B",
+             "Arn"
+            ]
+           },
+           "/*"
+          ]
+         ]
+        }
+       ]
+      }
+     ],
+     "Version": "2012-10-17"
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "SparkProcessingStack/SparkProcessing/DataBucket/Policy/Resource"
+   }
+  },
+  "SparkProcessingDataBucketAutoDeleteObjectsCustomResource39993028": {
+   "Type": "Custom::S3AutoDeleteObjects",
+   "Properties": {
+    "ServiceToken": {
+     "Fn::GetAtt": [
+      "CustomS3AutoDeleteObjectsCustomResourceProviderHandler9D90184F",
+      "Arn"
+     ]
+    },
+    "BucketName": {
+     "Ref": "SparkProcessingDataBucketFEF2931B"
+    }
+   },
+   "DependsOn": [
+    "SparkProcessingDataBucketPolicyD04B7DE6"
+   ],
+   "UpdateReplacePolicy": "Delete",
+   "DeletionPolicy": "Delete",
+   "Metadata": {
+    "aws:cdk:path": "SparkProcessingStack/SparkProcessing/DataBucket/AutoDeleteObjectsCustomResource/Default"
    }
   },
   "SparkProcessingGlueJobRole19FC065A": {
@@ -165,20 +237,6 @@
        ]
       ]
      }
-    ],
-    "Tags": [
-     {
-      "Key": "Environment",
-      "Value": "development"
-     },
-     {
-      "Key": "ManagedBy",
-      "Value": "CDK"
-     },
-     {
-      "Key": "Project",
-      "Value": "SparkProcessing"
-     }
     ]
    },
    "Metadata": {
@@ -192,11 +250,15 @@
      "Statement": [
       {
        "Action": [
-        "cloudwatch:GetMetricData",
-        "cloudwatch:PutMetricData",
+        "logs:AssociateKmsKey",
         "logs:CreateLogGroup",
         "logs:CreateLogStream",
-        "logs:PutLogEvents"
+        "logs:GetLogEvents",
+        "logs:GetLogGroupFields",
+        "logs:GetLogRecord",
+        "logs:GetQueryResults",
+        "logs:PutLogEvents",
+        "logs:PutRetentionPolicy"
        ],
        "Effect": "Allow",
        "Resource": "*"
@@ -218,7 +280,7 @@
        "Resource": [
         {
          "Fn::GetAtt": [
-          "SparkProcessingProcessingBucketD1A84B62",
+          "SparkProcessingDataBucketFEF2931B",
           "Arn"
          ]
         },
@@ -228,7 +290,7 @@
           [
            {
             "Fn::GetAtt": [
-             "SparkProcessingProcessingBucketD1A84B62",
+             "SparkProcessingDataBucketFEF2931B",
              "Arn"
             ]
            },
@@ -249,7 +311,7 @@
        "Effect": "Allow",
        "Resource": {
         "Fn::GetAtt": [
-         "EncryptionKey1B843E66",
+         "SparkProcessingKey0110089D",
          "Arn"
         ]
        }
@@ -274,26 +336,56 @@
     "Command": {
      "Name": "glueetl",
      "PythonVersion": "3",
-     "ScriptLocation": "s3://spark-processing-${awsConfig.env.account}-${awsConfig.env.region}/scripts/processor.py"
+     "ScriptLocation": {
+      "Fn::Join": [
+       "",
+       [
+        "s3://",
+        {
+         "Ref": "SparkProcessingDataBucketFEF2931B"
+        },
+        "/glue_script.py"
+       ]
+      ]
+     }
     },
     "DefaultArguments": {
      "--enable-metrics": "true",
      "--enable-continuous-cloudwatch-log": "true",
      "--enable-spark-ui": "true",
      "--enable-job-insights": "true",
-     "--enable-auto-scaling": "true",
      "--job-language": "python",
-     "--TempDir": "s3://spark-processing-152111776500-us-east-1/temp/",
-     "--extra-py-files": "s3://spark-processing-152111776500-us-east-1/dependencies/processing_modules.zip",
-     "--conf": "spark.sql.adaptive.enabled=true"
-    },
-    "ExecutionProperty": {
-     "MaxConcurrentRuns": 3
+     "--TempDir": {
+      "Fn::Join": [
+       "",
+       [
+        "s3://",
+        {
+         "Ref": "SparkProcessingDataBucketFEF2931B"
+        },
+        "/temp/"
+       ]
+      ]
+     },
+     "--enable-glue-datacatalog": "true",
+     "--extra-py-files": {
+      "Fn::Join": [
+       "",
+       [
+        "s3://",
+        {
+         "Ref": "SparkProcessingDataBucketFEF2931B"
+        },
+        "/dependencies/processing_modules.zip"
+       ]
+      ]
+     },
+     "--additional-python-modules": "aiohttp==3.9.3,dataclasses-json==0.6.4"
     },
     "GlueVersion": "4.0",
-    "MaxRetries": 2,
+    "MaxRetries": 0,
     "Name": "spark-processing-job",
-    "NumberOfWorkers": 10,
+    "NumberOfWorkers": 2,
     "Role": {
      "Fn::GetAtt": [
       "SparkProcessingGlueJobRole19FC065A",
@@ -301,11 +393,6 @@
      ]
     },
     "SecurityConfiguration": "GlueSecurityConfig",
-    "Tags": {
-     "Environment": "development",
-     "ManagedBy": "CDK",
-     "Project": "SparkProcessing"
-    },
     "Timeout": 2880,
     "WorkerType": "G.1X"
    },
@@ -313,117 +400,95 @@
     "aws:cdk:path": "SparkProcessingStack/SparkProcessing/SparkProcessingJob"
    }
   },
-  "SparkProcessingSparkProcessingDashboardBB5ABA86": {
+  "SparkProcessingProcessingDashboard70CA71E5": {
    "Type": "AWS::CloudWatch::Dashboard",
    "Properties": {
     "DashboardBody": {
      "Fn::Join": [
       "",
       [
-       "{\"widgets\":[{\"type\":\"metric\",\"width\":6,\"height\":6,\"x\":0,\"y\":0,\"properties\":{\"view\":\"timeSeries\",\"title\":\"Job Execution Metrics\",\"region\":\"",
+       "{\"widgets\":[{\"type\":\"metric\",\"width\":6,\"height\":6,\"x\":0,\"y\":0,\"properties\":{\"view\":\"timeSeries\",\"title\":\"Processing Metrics\",\"region\":\"",
        {
         "Ref": "AWS::Region"
        },
-       "\",\"metrics\":[[\"Glue\",\"glue.driver.aggregate.numCompletedTasks\",\"JobName\",\"spark-processing-job\",{\"period\":60,\"stat\":\"Sum\"}],[\"Glue\",\"glue.driver.aggregate.numFailedTasks\",\"JobName\",\"spark-processing-job\",{\"period\":60,\"stat\":\"Sum\"}]],\"yAxis\":{}}},{\"type\":\"metric\",\"width\":6,\"height\":6,\"x\":6,\"y\":0,\"properties\":{\"view\":\"timeSeries\",\"title\":\"Resource Utilization\",\"region\":\"",
-       {
-        "Ref": "AWS::Region"
-       },
-       "\",\"metrics\":[[\"Glue\",\"glue.driver.jvm.heap.usage\",\"JobName\",\"spark-processing-job\",{\"period\":60}],[\"Glue\",\"glue.driver.system.cpuSystemLoad\",\"JobName\",\"spark-processing-job\",{\"period\":60}]],\"yAxis\":{}}},{\"type\":\"metric\",\"width\":6,\"height\":6,\"x\":12,\"y\":0,\"properties\":{\"view\":\"timeSeries\",\"title\":\"Data Processing Metrics\",\"region\":\"",
-       {
-        "Ref": "AWS::Region"
-       },
-       "\",\"metrics\":[[\"Glue\",\"glue.ALL.s3.filesystem.read_bytes\",\"JobName\",\"spark-processing-job\",{\"period\":60,\"stat\":\"Sum\"}],[\"Glue\",\"glue.ALL.s3.filesystem.write_bytes\",\"JobName\",\"spark-processing-job\",{\"period\":60,\"stat\":\"Sum\"}]],\"yAxis\":{}}},{\"type\":\"metric\",\"width\":6,\"height\":6,\"x\":0,\"y\":6,\"properties\":{\"view\":\"timeSeries\",\"title\":\"Custom Metric: glue.driver.aggregate.shuffleLocalBytesRead\",\"region\":\"",
-       {
-        "Ref": "AWS::Region"
-       },
-       "\",\"metrics\":[[\"Glue\",\"glue.driver.aggregate.shuffleLocalBytesRead\",\"JobName\",\"spark-processing-job\",{\"period\":60}]],\"yAxis\":{}}},{\"type\":\"metric\",\"width\":6,\"height\":6,\"x\":6,\"y\":6,\"properties\":{\"view\":\"timeSeries\",\"title\":\"Custom Metric: glue.driver.aggregate.shuffleRemoteBytesRead\",\"region\":\"",
-       {
-        "Ref": "AWS::Region"
-       },
-       "\",\"metrics\":[[\"Glue\",\"glue.driver.aggregate.shuffleRemoteBytesRead\",\"JobName\",\"spark-processing-job\",{\"period\":60}]],\"yAxis\":{}}},{\"type\":\"metric\",\"width\":6,\"height\":6,\"x\":12,\"y\":6,\"properties\":{\"view\":\"timeSeries\",\"title\":\"Custom Metric: glue.driver.BlockManager.memory.memUsed_MB\",\"region\":\"",
-       {
-        "Ref": "AWS::Region"
-       },
-       "\",\"metrics\":[[\"Glue\",\"glue.driver.BlockManager.memory.memUsed_MB\",\"JobName\",\"spark-processing-job\",{\"period\":60}]],\"yAxis\":{}}}]}"
+       "\",\"metrics\":[[\"SparkProcessing\",\"ProcessedRecords\",{\"period\":60,\"stat\":\"Sum\"}],[\"SparkProcessing\",\"APILatencyAvg\",{\"period\":60}]],\"yAxis\":{}}}]}"
       ]
      ]
     },
-    "DashboardName": "spark-processing-job-metrics"
+    "DashboardName": "SparkProcessing"
    },
    "Metadata": {
-    "aws:cdk:path": "SparkProcessingStack/SparkProcessing/SparkProcessingDashboard/Resource"
+    "aws:cdk:path": "SparkProcessingStack/SparkProcessing/ProcessingDashboard/Resource"
    }
   },
-  "SparkProcessingFailedTasksAlarm22F13DE8": {
-   "Type": "AWS::CloudWatch::Alarm",
+  "CustomS3AutoDeleteObjectsCustomResourceProviderRole3B1BD092": {
+   "Type": "AWS::IAM::Role",
    "Properties": {
-    "AlarmDescription": "Alert when Glue job has more than 5 failed tasks in 5 minutes",
-    "ComparisonOperator": "GreaterThanOrEqualToThreshold",
-    "Dimensions": [
+    "AssumeRolePolicyDocument": {
+     "Version": "2012-10-17",
+     "Statement": [
+      {
+       "Action": "sts:AssumeRole",
+       "Effect": "Allow",
+       "Principal": {
+        "Service": "lambda.amazonaws.com"
+       }
+      }
+     ]
+    },
+    "ManagedPolicyArns": [
      {
-      "Name": "JobName",
-      "Value": "spark-processing-job"
+      "Fn::Sub": "arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
      }
-    ],
-    "EvaluationPeriods": 1,
-    "MetricName": "glue.driver.aggregate.numFailedTasks",
-    "Namespace": "Glue",
-    "Period": 300,
-    "Statistic": "Sum",
-    "Threshold": 5
+    ]
    },
    "Metadata": {
-    "aws:cdk:path": "SparkProcessingStack/SparkProcessing/FailedTasksAlarm/Resource"
+    "aws:cdk:path": "SparkProcessingStack/Custom::S3AutoDeleteObjectsCustomResourceProvider/Role"
    }
   },
-  "SparkProcessingMemoryUtilizationAlarm0FB77364": {
-   "Type": "AWS::CloudWatch::Alarm",
+  "CustomS3AutoDeleteObjectsCustomResourceProviderHandler9D90184F": {
+   "Type": "AWS::Lambda::Function",
    "Properties": {
-    "AlarmDescription": "Alert when memory utilization exceeds 85% for 10 minutes",
-    "ComparisonOperator": "GreaterThanOrEqualToThreshold",
-    "Dimensions": [
-     {
-      "Name": "JobName",
-      "Value": "spark-processing-job"
-     }
-    ],
-    "EvaluationPeriods": 2,
-    "MetricName": "glue.driver.jvm.heap.usage",
-    "Namespace": "Glue",
-    "Period": 300,
-    "Statistic": "Average",
-    "Threshold": 85
+    "Code": {
+     "S3Bucket": "cdk-hnb659fds-assets-152111776500-us-east-1",
+     "S3Key": "5194f926380567b6fdffc61629afdad2afc818614cb227df45e499c69db163a7.zip"
+    },
+    "Timeout": 900,
+    "MemorySize": 128,
+    "Handler": "index.handler",
+    "Role": {
+     "Fn::GetAtt": [
+      "CustomS3AutoDeleteObjectsCustomResourceProviderRole3B1BD092",
+      "Arn"
+     ]
+    },
+    "Runtime": "nodejs18.x",
+    "Description": {
+     "Fn::Join": [
+      "",
+      [
+       "Lambda function for auto-deleting objects in ",
+       {
+        "Ref": "SparkProcessingDataBucketFEF2931B"
+       },
+       " S3 bucket."
+      ]
+     ]
+    }
    },
+   "DependsOn": [
+    "CustomS3AutoDeleteObjectsCustomResourceProviderRole3B1BD092"
+   ],
    "Metadata": {
-    "aws:cdk:path": "SparkProcessingStack/SparkProcessing/MemoryUtilizationAlarm/Resource"
-   }
-  },
-  "SparkProcessingProcessingTimeAlarm45611D77": {
-   "Type": "AWS::CloudWatch::Alarm",
-   "Properties": {
-    "AlarmDescription": "Alert when processing time exceeds 3600 seconds",
-    "ComparisonOperator": "GreaterThanOrEqualToThreshold",
-    "Dimensions": [
-     {
-      "Name": "JobName",
-      "Value": "spark-processing-job"
-     }
-    ],
-    "EvaluationPeriods": 1,
-    "MetricName": "glue.driver.aggregate.elapsedTime",
-    "Namespace": "Glue",
-    "Period": 300,
-    "Statistic": "Average",
-    "Threshold": 3600
-   },
-   "Metadata": {
-    "aws:cdk:path": "SparkProcessingStack/SparkProcessing/ProcessingTimeAlarm/Resource"
+    "aws:cdk:path": "SparkProcessingStack/Custom::S3AutoDeleteObjectsCustomResourceProvider/Handler",
+    "aws:asset:path": "asset.5194f926380567b6fdffc61629afdad2afc818614cb227df45e499c69db163a7",
+    "aws:asset:property": "Code"
    }
   },
   "CDKMetadata": {
    "Type": "AWS::CDK::Metadata",
    "Properties": {
-    "Analytics": "v2:deflate64:H4sIAAAAAAAA/0WNyw6CMBBFv4X9MAqsWPpY6cbgB5jSVim0NOlDYpr+u5SauLrnntzJ1Ni2WBVksSVlUylFj+HuCJ1gVY8wKYvhyj9wes5rRLANhqOnE3dJZYogiMLQacmT3PKmpaDbWaYIL+k5rv2ie6BSe7YQRwcMZ2KHXhPD0vhfDpIYldQGMULHrfaG5hc/jjBrxnG0u3fdYFXhvhitEKXxsxOKY5fzCxTqW27lAAAA"
+    "Analytics": "v2:deflate64:H4sIAAAAAAAA/1WQQW7CMBBFz8LemTawYknTVdmgcIDKsU0Y4ngkjw2KLN+9MSmNuvr/Pz95MVvY76HeyAdXSg+VxQ7SOUg1iBl9p2FkSEcziebiShwsSi7jWbLobTSQ5n02KnoMU0Pugn30MiC5In5RlwXvIH1ENZhQ0G9b4kQW1bTiZWeBcoTUkjXl6Zmr+XKUpagfMqgrpE/J146k10X4GzmLJnKgsTVM0avlt1df4T/n5OmO2nhxYDZhvkaPrs/CkTZw47f7dgd1De+bGyNWPrqAo4F2yR891qtwUAEAAA=="
    },
    "Metadata": {
     "aws:cdk:path": "SparkProcessingStack/CDKMetadata/Default"

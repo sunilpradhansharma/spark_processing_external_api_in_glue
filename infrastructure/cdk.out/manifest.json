@@ -15,15 +15,10 @@
       "properties": {
         "templateFile": "SparkProcessingStack.template.json",
         "terminationProtection": false,
-        "tags": {
-          "Environment": "development",
-          "ManagedBy": "CDK",
-          "Project": "SparkProcessing"
-        },
         "validateOnSynth": false,
         "assumeRoleArn": "arn:${AWS::Partition}:iam::152111776500:role/cdk-hnb659fds-deploy-role-152111776500-us-east-1",
         "cloudFormationExecutionRoleArn": "arn:${AWS::Partition}:iam::152111776500:role/cdk-hnb659fds-cfn-exec-role-152111776500-us-east-1",
-        "stackTemplateAssetObjectUrl": "s3://cdk-hnb659fds-assets-152111776500-us-east-1/16cea65a46af5ba878383f82711e26d84d890c67188c947c5837dd7c99d97014.json",
+        "stackTemplateAssetObjectUrl": "s3://cdk-hnb659fds-assets-152111776500-us-east-1/3b66aaf674bc0599405230976ab488fbc096839adff991c5a8e42e3dfeceb2c6.json",
         "requiresBootstrapStackVersion": 6,
         "bootstrapStackVersionSsmParameter": "/cdk-bootstrap/hnb659fds/version",
         "additionalDependencies": [
@@ -39,35 +34,40 @@
         "SparkProcessingStack.assets"
       ],
       "metadata": {
-        "/SparkProcessingStack": [
-          {
-            "type": "aws:cdk:stack-tags",
-            "data": [
-              {
-                "Key": "Environment",
-                "Value": "development"
-              },
-              {
-                "Key": "ManagedBy",
-                "Value": "CDK"
-              },
-              {
-                "Key": "Project",
-                "Value": "SparkProcessing"
-              }
-            ]
-          }
-        ],
-        "/SparkProcessingStack/EncryptionKey/Resource": [
+        "/SparkProcessingStack/SparkProcessingKey/Resource": [
           {
             "type": "aws:cdk:logicalId",
-            "data": "EncryptionKey1B843E66"
+            "data": "SparkProcessingKey0110089D"
           }
         ],
-        "/SparkProcessingStack/SparkProcessing/ProcessingBucket/Resource": [
+        "/SparkProcessingStack/SparkProcessingKey/Alias/Resource": [
           {
             "type": "aws:cdk:logicalId",
-            "data": "SparkProcessingProcessingBucketD1A84B62"
+            "data": "SparkProcessingKeyAlias48897128"
+          }
+        ],
+        "/SparkProcessingStack/GlueSecurityConfig": [
+          {
+            "type": "aws:cdk:logicalId",
+            "data": "GlueSecurityConfig"
+          }
+        ],
+        "/SparkProcessingStack/SparkProcessing/DataBucket/Resource": [
+          {
+            "type": "aws:cdk:logicalId",
+            "data": "SparkProcessingDataBucketFEF2931B"
+          }
+        ],
+        "/SparkProcessingStack/SparkProcessing/DataBucket/Policy/Resource": [
+          {
+            "type": "aws:cdk:logicalId",
+            "data": "SparkProcessingDataBucketPolicyD04B7DE6"
+          }
+        ],
+        "/SparkProcessingStack/SparkProcessing/DataBucket/AutoDeleteObjectsCustomResource/Default": [
+          {
+            "type": "aws:cdk:logicalId",
+            "data": "SparkProcessingDataBucketAutoDeleteObjectsCustomResource39993028"
           }
         ],
         "/SparkProcessingStack/SparkProcessing/GlueJobRole/Resource": [
@@ -88,28 +88,22 @@
             "data": "SparkProcessingSparkProcessingJobE93F9E83"
           }
         ],
-        "/SparkProcessingStack/SparkProcessing/SparkProcessingDashboard/Resource": [
+        "/SparkProcessingStack/SparkProcessing/ProcessingDashboard/Resource": [
           {
             "type": "aws:cdk:logicalId",
-            "data": "SparkProcessingSparkProcessingDashboardBB5ABA86"
+            "data": "SparkProcessingProcessingDashboard70CA71E5"
           }
         ],
-        "/SparkProcessingStack/SparkProcessing/FailedTasksAlarm/Resource": [
+        "/SparkProcessingStack/Custom::S3AutoDeleteObjectsCustomResourceProvider/Role": [
           {
             "type": "aws:cdk:logicalId",
-            "data": "SparkProcessingFailedTasksAlarm22F13DE8"
+            "data": "CustomS3AutoDeleteObjectsCustomResourceProviderRole3B1BD092"
           }
         ],
-        "/SparkProcessingStack/SparkProcessing/MemoryUtilizationAlarm/Resource": [
+        "/SparkProcessingStack/Custom::S3AutoDeleteObjectsCustomResourceProvider/Handler": [
           {
             "type": "aws:cdk:logicalId",
-            "data": "SparkProcessingMemoryUtilizationAlarm0FB77364"
-          }
-        ],
-        "/SparkProcessingStack/SparkProcessing/ProcessingTimeAlarm/Resource": [
-          {
-            "type": "aws:cdk:logicalId",
-            "data": "SparkProcessingProcessingTimeAlarm45611D77"
+            "data": "CustomS3AutoDeleteObjectsCustomResourceProviderHandler9D90184F"
           }
         ],
         "/SparkProcessingStack/CDKMetadata/Default": [

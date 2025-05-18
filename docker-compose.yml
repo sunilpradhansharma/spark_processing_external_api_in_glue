@@ -1,0 +1,17 @@
+version: '3'
+services:
+  spark:
+    build: .
+    volumes:
+      - ./data:/app/data
+      - ./src:/app/src
+      - ./tests:/app/tests
+      - ./glue_script.py:/app/glue_script.py
+    environment:
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+      - AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION}
+      - PYTHONPATH=/app
+    ports:
+      - "4040:4040"  # Spark UI
+    command: python3 -m pytest tests/test_local.py -v 
