@@ -241,35 +241,32 @@ sequenceDiagram
 ### Monitoring Architecture
 
 ```mermaid
-graph LR
-    subgraph Metrics_Collection
-        GlueMetrics[Glue Metrics]
-        CustomMetrics[Custom Metrics]
-        APIMetrics[API Metrics]
-    end
+flowchart LR
+    %% Metrics Collection
+    GlueMetrics([Glue Metrics])
+    CustomMetrics([Custom Metrics])
+    APIMetrics([API Metrics])
     
-    subgraph CloudWatch
-        Dashboard[Dashboard]
-        Alarms[Alarms]
-        Logs[Log Groups]
-    end
+    %% CloudWatch Components
+    Dashboard([Dashboard])
+    Alarms([Alarms])
+    Logs([Log Groups])
     
-    subgraph Alerting
-        SNS[SNS Topics]
-        Lambda[Lambda Functions]
-        Email[Email Notifications]
-    end
+    %% Alerting Components
+    SNS([SNS Topics])
+    Lambda([Lambda Functions])
+    Email([Email Notifications])
+    S3[(S3)]
     
-    GlueMetrics -->|Publish| Dashboard
-    CustomMetrics -->|Publish| Dashboard
-    APIMetrics -->|Publish| Dashboard
-    
-    Dashboard -->|Trigger| Alarms
-    Alarms -->|Notify| SNS
-    SNS -->|Process| Lambda
-    Lambda -->|Send| Email
-    
-    Logs -->|Archive| S3
+    %% Connections
+    GlueMetrics --> Dashboard
+    CustomMetrics --> Dashboard
+    APIMetrics --> Dashboard
+    Dashboard --> Alarms
+    Alarms --> SNS
+    SNS --> Lambda
+    Lambda --> Email
+    Logs --> S3
 ```
 
 ## Advanced Configuration Options
