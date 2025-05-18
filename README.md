@@ -242,7 +242,7 @@ sequenceDiagram
 
 ```mermaid
 graph LR
-    subgraph Metrics Collection
+    subgraph Metrics_Collection
         GlueMetrics[Glue Metrics]
         CustomMetrics[Custom Metrics]
         APIMetrics[API Metrics]
